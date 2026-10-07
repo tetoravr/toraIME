@@ -114,3 +114,48 @@ jobs:
         with:
           name: toraIME
           path: dist
+
+  install-test:
+    name: インストーラーの確認
+    needs: package
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: toraIME
+          path: dist
+      - name: インストール・使用中の再インストール・アンインストール
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:ProgramFiles 'toraIME'
+          $clsid = '{6BA3DA2F-6C06-4E10-AC8D-1350C0344633}'
+          $pkg = Resolve-Path dist\toraIME
+          function Get-Server { (Get-ItemProperty "HKLM:\SOFTWARE\Classes\CLSID\$clsid\InprocServer32").'(default)' }
+
+          & "$pkg\install.ps1" -NoLanguageList
+          $first = Get-Server
+          Write-Host "1st: $first"
+          if (-not (Test-Path $first)) { throw 'DLL not found' }
+          $firstDir = Split-Path (Split-Path $first)
+          if (-not (Test-Path "$firstDir\toraime.dic")) { throw 'dictionary not installed' }
+
+          # 起動中のアプリが辞書を開いている状態 (削除を許さない共有モード) で入れ直す
+          $lock = [System.IO.File]::Open("$firstDir\toraime.dic", 'Open', 'Read', 'Read')
+          Start-Sleep -Seconds 1
+          & "$pkg\install.ps1" -NoLanguageList
+          $second = Get-Server
+          Write-Host "2nd: $second"
+          if ($second -eq $first) { throw 'not reinstalled into a new folder' }
+          if (-not (Test-Path $firstDir)) { throw 'locked old version should be kept' }
+          $lock.Close()
+
+          # 使われなくなった古いバージョンは次のインストールで消える
+          Start-Sleep -Seconds 1
+          & "$pkg\install.ps1" -NoLanguageList
+          if (Test-Path $firstDir) { throw 'old version was not removed' }
+          Get-ChildItem $root
+
+          & "$root\uninstall.ps1"
+          if (Test-Path "HKLM:\SOFTWARE\Classes\CLSID\$clsid") { throw 'CLSID was not removed' }
+          if (Test-Path $root) { throw 'install folder was not removed' }

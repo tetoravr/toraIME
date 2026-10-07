@@ -20,7 +20,8 @@ MappedFile::~MappedFile() { Close(); }
 
 bool MappedFile::Open(const std::filesystem::path& path) {
   Close();
-  HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+  // FILE_SHARE_DELETE: IME が読み込んでいる間でも、インストーラーが古い辞書を消せるようにする
+  HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
                             FILE_ATTRIBUTE_NORMAL, nullptr);
   if (file == INVALID_HANDLE_VALUE) return false;
   LARGE_INTEGER size;
