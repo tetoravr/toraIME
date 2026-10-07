@@ -168,6 +168,7 @@ TEST(RomajiBasic) {
   CHECK_EQ(RomajiToKana("konnyaku"), "こんにゃく");
   CHECK_EQ(RomajiToKana("kan'i"), "かんい");
   CHECK_EQ(RomajiToKana("ltu"), "っ");
+  CHECK_EQ(RomajiToKana("tsudzuku"), "つづく");
   CHECK_EQ(RomajiToKana("nihon"), "にほん");             // 末尾の n は確定時に「ん」
   CHECK_EQ(RomajiToKana("nihon", false), "にほn");       // 入力途中はまだ n
   CHECK_EQ(RomajiToKana("ky", false), "ky");
