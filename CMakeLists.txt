@@ -60,6 +60,7 @@ if(TORA_BUILD_TSF)
     src/tsf/display_attribute.cpp
     src/tsf/dllmain.cpp
     src/tsf/edit_session.cpp
+    src/tsf/guids.cpp
     src/tsf/key_translator.cpp
     src/tsf/language_bar.cpp
     src/tsf/registry.cpp
@@ -69,8 +70,36 @@ if(TORA_BUILD_TSF)
     src/tsf/toraime.rc
   )
   target_link_libraries(toraime PRIVATE tora_engine ole32 oleaut32 uuid advapi32 user32 gdi32 shell32 shlwapi)
+  target_include_directories(toraime PRIVATE src/tsf)
+  target_compile_definitions(toraime PRIVATE _WIN32_WINNT=0x0A00)
   if(NOT MSVC)
     target_link_options(toraime PRIVATE -static -static-libgcc -static-libstdc++)
   endif()
   set_target_properties(toraime PROPERTIES PREFIX "")
+
+  # 自前の GUID 定義が SDK と一致するかの確認 (SDK の定義がある MSVC のみ)
+  if(MSVC AND TORA_BUILD_TESTS)
+    add_executable(tsf_guid_check tests/tsf_guid_check.cpp src/tsf/guids.cpp)
+    target_link_libraries(tsf_guid_check PRIVATE uuid ole32)
+    add_test(NAME tsf_guid_check COMMAND tsf_guid_check)
+
+    # TSF のスレッドマネージャーで有効化・無効化してみる
+    get_target_property(TORA_TSF_SOURCES toraime SOURCES)
+    list(FILTER TORA_TSF_SOURCES INCLUDE REGEX "\\.cpp$")
+    add_executable(tsf_smoke tests/tsf_smoke.cpp ${TORA_TSF_SOURCES})
+    target_compile_definitions(tsf_smoke PRIVATE _WIN32_WINNT=0x0A00)
+    target_link_libraries(tsf_smoke PRIVATE tora_engine uuid ole32 oleaut32 advapi32 user32 gdi32 shell32 shlwapi)
+    add_test(NAME tsf_smoke COMMAND tsf_smoke)
+  endif()
+endif()
+
+# --- 辞書の生成 (cmake --build . --target dictionary) ---
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_FOUND)
+  add_custom_target(dictionary
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tools/fetch_mozc.py ${CMAKE_BINARY_DIR}/mozc
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tools/build_dict.py ${CMAKE_BINARY_DIR}/mozc
+            ${CMAKE_BINARY_DIR}/toraime.dic
+    COMMENT "Mozc の辞書データから toraime.dic を作ります"
+    VERBATIM)
 endif()

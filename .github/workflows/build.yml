@@ -1,0 +1,116 @@
+name: build
+
+on:
+  push:
+    branches: [main, master, "claude/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dictionary:
+    name: 辞書の生成
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        id: cache
+        with:
+          path: dict
+          key: dict-${{ hashFiles('tools/fetch_mozc.py', 'tools/build_dict.py') }}
+      - name: Mozc の辞書データから toraime.dic を作る
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          python3 tools/fetch_mozc.py mozc
+          python3 tools/build_dict.py mozc dict/toraime.dic
+          cp mozc/README.txt dict/MOZC_DICTIONARY_README.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dictionary
+          path: dict
+          retention-days: 7
+
+  linux-tests:
+    name: エンジンのテスト (Linux)
+    needs: dictionary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dictionary
+          path: dict
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DTORA_DIC=$PWD/dict/toraime.dic
+      - run: cmake --build build -j
+      - run: ctest --test-dir build --output-on-failure --timeout 300
+
+  windows:
+    name: Windows (${{ matrix.arch }})
+    needs: dictionary
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            dir: x64
+            regsvr: C:\Windows\System32\regsvr32.exe
+            classes: HKLM:\SOFTWARE\Classes\CLSID
+          - arch: Win32
+            dir: x86
+            regsvr: C:\Windows\SysWOW64\regsvr32.exe
+            classes: HKLM:\SOFTWARE\WOW6432Node\Classes\CLSID
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dictionary
+          path: dict
+      - run: cmake -S . -B build -A ${{ matrix.arch }} -DTORA_DIC="${{ github.workspace }}\dict\toraime.dic"
+      - run: cmake --build build --config Release
+      - run: ctest --test-dir build -C Release --output-on-failure --timeout 300
+      - name: COM サーバーとして登録・解除できるか
+        shell: pwsh
+        run: |
+          $dll = (Resolve-Path build\Release\toraime.dll).Path
+          $clsid = '{6BA3DA2F-6C06-4E10-AC8D-1350C0344633}'
+          $p = Start-Process '${{ matrix.regsvr }}' -ArgumentList '/s', "`"$dll`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "regsvr32 failed: $($p.ExitCode)" }
+          $server = Get-ItemProperty "${{ matrix.classes }}\$clsid\InprocServer32"
+          if ($server.'(default)' -ne $dll) { throw "InprocServer32 is not registered" }
+          if (-not (Test-Path "HKLM:\SOFTWARE\Microsoft\CTF\TIP\$clsid")) { throw "TIP profile is not registered" }
+          Get-ChildItem -Recurse "HKLM:\SOFTWARE\Microsoft\CTF\TIP\$clsid" | Select-Object -ExpandProperty Name
+          $p = Start-Process '${{ matrix.regsvr }}' -ArgumentList '/u', '/s', "`"$dll`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "regsvr32 /u failed: $($p.ExitCode)" }
+          if (Test-Path "${{ matrix.classes }}\$clsid") { throw "CLSID was not removed" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: toraime-${{ matrix.dir }}
+          path: build/Release/toraime.dll
+          retention-days: 7
+
+  package:
+    name: 配布用 zip
+    needs: [linux-tests, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: まとめる
+        run: |
+          mkdir -p dist/toraIME/x64 dist/toraIME/x86
+          cp artifacts/toraime-x64/toraime.dll dist/toraIME/x64/
+          cp artifacts/toraime-x86/toraime.dll dist/toraIME/x86/
+          cp artifacts/dictionary/toraime.dic dist/toraIME/
+          cp artifacts/dictionary/MOZC_DICTIONARY_README.txt dist/toraIME/
+          cp data/english_words.txt dist/toraIME/
+          cp scripts/install.ps1 scripts/uninstall.ps1 scripts/install.cmd scripts/uninstall.cmd dist/toraIME/
+          cp README.md dist/toraIME/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: toraIME
+          path: dist
