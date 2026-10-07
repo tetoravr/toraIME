@@ -94,6 +94,9 @@ struct Output {
   size_t page_count = 0;
   size_t focus_begin = 0;  // 注目文節の preedit 内の位置 (候補ウィンドウの位置合わせ用)
   size_t focus_length = 0;
+
+  // 入力中に表示する読み (表示が読みと同じときや設定で無効なときは空)
+  std::u16string reading;
 };
 
 class Session {
@@ -147,6 +150,8 @@ class Session {
   std::u16string CommitConvert();
   std::u16string SegSurface(const Seg& seg) const;
   std::u16string InputPreedit() const;
+  std::u16string UnitsAsReading(const Units& units) const;
+  bool LiveActive() const;
   void Clear();
 
   Engine* engine_;

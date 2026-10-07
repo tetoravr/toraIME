@@ -16,7 +16,7 @@ enum MenuId : UINT {
   kMenuHiragana = 1,
   kMenuFullAlnum,
   kMenuHalfAlnum,
-  kMenuLive = 10,
+  kMenuReadingHint = 10,
   kMenuEnglish,
   kMenuKanaInput,
   kMenuHalfKana,
@@ -29,6 +29,9 @@ enum MenuId : UINT {
   kMenuPunct1,
   kMenuPunct2,
   kMenuPunct3,
+  kMenuLiveFull = 35,
+  kMenuLiveKeepLast,
+  kMenuLiveOff,
   kMenuUserDict = 40,
   kMenuUserEnglish,
   kMenuClearHistory,
@@ -193,7 +196,19 @@ STDMETHODIMP LanguageBarButton::InitMenu(ITfMenu* menu) {
   AddItem(menu, kMenuHalfAlnum, L"半角英数 (IME オフ)", Radio(!open || mode == tora::InputMode::kHalfWidthAlnum));
   AddItem(menu, 0, L"", TF_LBMENUF_SEPARATOR);
 
-  AddItem(menu, kMenuLive, L"自動で変換する (ライブ変換)", Check(c.live_conversion));
+  ITfMenu* live = nullptr;
+  AddItem(menu, 0, L"入力中の表示", TF_LBMENUF_SUBMENU, &live);
+  if (live != nullptr) {
+    AddItem(live, kMenuLiveFull, L"すべて自動で変換する",
+            Radio(c.live_conversion == tora::LiveConversion::kFull));
+    AddItem(live, kMenuLiveKeepLast, L"入力中の文節はひらがなのまま",
+            Radio(c.live_conversion == tora::LiveConversion::kKeepLastSegment));
+    AddItem(live, kMenuLiveOff, L"変換しない (Space で変換)",
+            Radio(c.live_conversion == tora::LiveConversion::kOff));
+    live->Release();
+  }
+  AddItem(menu, kMenuReadingHint, L"入力した読みを下に表示する",
+          Check(c.reading_hint) | (c.live_conversion == tora::LiveConversion::kOff ? TF_LBMENUF_GRAYED : 0));
   AddItem(menu, kMenuEnglish, L"英単語は英字のまま入力する", Check(c.english_detection));
   AddItem(menu, kMenuLearning, L"変換を学習する", Check(c.learning));
   AddItem(menu, kMenuConvertKeys, L"変換キーでオン / 無変換キーでオフ", Check(c.convert_keys_on_off));
@@ -238,7 +253,10 @@ STDMETHODIMP LanguageBarButton::OnMenuSelect(UINT id) {
     case kMenuHiragana: service_->SetMode(true, tora::InputMode::kHiragana); changed = false; break;
     case kMenuFullAlnum: service_->SetMode(true, tora::InputMode::kFullWidthAlnum); changed = false; break;
     case kMenuHalfAlnum: service_->SetMode(false, tora::InputMode::kHiragana); changed = false; break;
-    case kMenuLive: c.live_conversion = !c.live_conversion; break;
+    case kMenuReadingHint: c.reading_hint = !c.reading_hint; break;
+    case kMenuLiveFull: c.live_conversion = tora::LiveConversion::kFull; break;
+    case kMenuLiveKeepLast: c.live_conversion = tora::LiveConversion::kKeepLastSegment; break;
+    case kMenuLiveOff: c.live_conversion = tora::LiveConversion::kOff; break;
     case kMenuEnglish: c.english_detection = !c.english_detection; break;
     case kMenuLearning: c.learning = !c.learning; break;
     case kMenuConvertKeys: c.convert_keys_on_off = !c.convert_keys_on_off; break;

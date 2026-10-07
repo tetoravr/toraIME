@@ -52,7 +52,9 @@ tora::Config LoadConfig() {
   c.kana_input_enabled = ReadDword(key, L"KanaInput", c.kana_input_enabled) != 0;
   c.half_width_kana_enabled = ReadDword(key, L"HalfWidthKana", c.half_width_kana_enabled) != 0;
   c.english_detection = ReadDword(key, L"EnglishDetection", c.english_detection) != 0;
-  c.live_conversion = ReadDword(key, L"LiveConversion", c.live_conversion) != 0;
+  DWORD live = ReadDword(key, L"LiveConversion", static_cast<DWORD>(c.live_conversion));
+  if (live <= 2) c.live_conversion = static_cast<tora::LiveConversion>(live);
+  c.reading_hint = ReadDword(key, L"ReadingHint", c.reading_hint) != 0;
   c.learning = ReadDword(key, L"Learning", c.learning) != 0;
   c.convert_keys_on_off = ReadDword(key, L"ConvertKeysOnOff", c.convert_keys_on_off) != 0;
   RegCloseKey(key);
@@ -70,7 +72,8 @@ void SaveConfig(const tora::Config& c) {
   WriteDword(key, L"KanaInput", c.kana_input_enabled);
   WriteDword(key, L"HalfWidthKana", c.half_width_kana_enabled);
   WriteDword(key, L"EnglishDetection", c.english_detection);
-  WriteDword(key, L"LiveConversion", c.live_conversion);
+  WriteDword(key, L"LiveConversion", static_cast<DWORD>(c.live_conversion));
+  WriteDword(key, L"ReadingHint", c.reading_hint);
   WriteDword(key, L"Learning", c.learning);
   WriteDword(key, L"ConvertKeysOnOff", c.convert_keys_on_off);
   RegCloseKey(key);

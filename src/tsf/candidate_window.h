@@ -21,6 +21,8 @@ class CandidateWindow {
   // anchor: 注目文節の位置 (スクリーン座標)。その下に表示する
   void Show(const RECT& anchor, const std::vector<std::wstring>& items,
             const std::vector<std::wstring>& notes, int selected, size_t page, size_t page_count);
+  // 候補の代わりに 1 行の文字列 (入力した読み) を表示する
+  void ShowHint(const RECT& anchor, const std::wstring& text);
   void Hide();
   bool visible() const { return visible_; }
 
@@ -29,6 +31,7 @@ class CandidateWindow {
  private:
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
   bool EnsureWindow();
+  void Layout(const RECT& anchor);
   void Paint(HDC hdc);
   int HitTest(int y) const;
   int Scale(int v) const;
@@ -45,6 +48,7 @@ class CandidateWindow {
   HFONT font_ = nullptr;
   UINT font_dpi_ = 0;
   int row_height_ = 0;
+  bool hint_ = false;
 };
 
 }  // namespace toraime

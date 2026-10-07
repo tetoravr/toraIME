@@ -550,7 +550,8 @@ void TextService::EndComposition(TfEditCookie ec, ITfContext* ctx) {
 
 void TextService::UpdateCandidateWindow(TfEditCookie ec, ITfContext* ctx, const tora::Output& out) {
   if (!candidate_window_) return;
-  if (!out.candidates_visible || !composition_) {
+  const bool show_hint = !out.candidates_visible && !out.reading.empty();
+  if ((!out.candidates_visible && !show_hint) || !composition_) {
     candidate_window_->Hide();
     return;
   }
@@ -579,6 +580,10 @@ void TextService::UpdateCandidateWindow(TfEditCookie ec, ITfContext* ctx, const 
     }
     rc = gti.rcCaret;
     MapWindowPoints(gti.hwndCaret, nullptr, reinterpret_cast<POINT*>(&rc), 2);
+  }
+  if (show_hint) {
+    candidate_window_->ShowHint(rc, ToWide(out.reading));
+    return;
   }
   std::vector<std::wstring> items, notes;
   for (const auto& c : out.candidates) items.push_back(ToWide(c));

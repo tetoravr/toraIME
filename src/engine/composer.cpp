@@ -147,6 +147,18 @@ void Composer::Clear() {
   pending_.clear();
 }
 
+Units Composer::GetUnitsAsTyped() const {
+  Units units = units_;
+  for (char c : pending_) {
+    Unit u;
+    u.kind = UnitKind::kLetter;
+    u.raw = std::string(1, c);
+    u.text = std::u16string(1, static_cast<char16_t>(c));
+    units.push_back(std::move(u));
+  }
+  return units;
+}
+
 Units Composer::GetUnits() const {
   Composer copy = *this;
   copy.FlushPending(true);

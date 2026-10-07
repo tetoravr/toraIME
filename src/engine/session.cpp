@@ -126,7 +126,7 @@ Output Session::ProcessInput(const KeyEvent& key) {
       if (composer_.empty()) Clear();
       break;
     case KeyCode::kEscape:
-      if (engine_->config().live_conversion && !show_hiragana_) {
+      if (LiveActive()) {
         show_hiragana_ = true;  // 1 回目: 変換前のひらがなに戻す
       } else {
         Clear();  // 2 回目: 取り消す
@@ -442,17 +442,40 @@ std::u16string Session::CommitConvert() {
   return text;
 }
 
+bool Session::LiveActive() const {
+  return engine_->config().live_conversion != LiveConversion::kOff && !show_hiragana_;
+}
+
 std::u16string Session::InputPreedit() const {
   const Config& cfg = engine_->config();
   Input input(composer_.GetUnits());
-  if (cfg.live_conversion && !show_hiragana_) {
-    std::u16string s;
-    for (const Node& n : engine_->converter().Convert(input)) s += n.surface;
+  if (!LiveActive()) return UnitsAsReading(input.units());
+
+  const Converter& conv = engine_->converter();
+  std::vector<Node> path = conv.Convert(input);
+  std::u16string s;
+  if (cfg.live_conversion == LiveConversion::kKeepLastSegment) {
+    // 最後の文節 (いま打っている文節) は変換せずに読みのまま見せる
+    auto segments = conv.Segment(path);
+    for (size_t i = 0; i < segments.size(); ++i) {
+      const bool last = i + 1 == segments.size();
+      for (const Node& n : segments[i]) {
+        const bool kana_word = n.kind == NodeKind::kWord || n.kind == NodeKind::kUser ||
+                               n.kind == NodeKind::kHistory || n.kind == NodeKind::kUnknownKana;
+        s += last && kana_word ? n.reading : n.surface;
+      }
+    }
     return s;
   }
+  for (const Node& n : path) s += n.surface;
+  return s;
+}
+
+std::u16string Session::UnitsAsReading(const Units& units) const {
   // 変換しない表示: かなはそのまま、英数字は設定に従った幅
+  const Config& cfg = engine_->config();
   std::u16string s;
-  for (const Unit& u : input.units()) {
+  for (const Unit& u : units) {
     switch (u.kind) {
       case UnitKind::kKana:
       case UnitKind::kSymbol:
@@ -479,6 +502,11 @@ Output Session::Render() const {
     out.caret = out.preedit.size();
     out.focus_begin = 0;
     out.focus_length = out.preedit.size();
+    if (engine_->config().reading_hint && LiveActive()) {
+      // 打ったとおりの読み (未確定のローマ字もそのまま)。表示と同じなら出さない
+      std::u16string reading = UnitsAsReading(composer_.GetUnitsAsTyped());
+      if (reading != out.preedit) out.reading = std::move(reading);
+    }
     return out;
   }
   if (state_ != State::kConvert) return out;

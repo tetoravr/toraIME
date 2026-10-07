@@ -56,12 +56,31 @@ void CandidateWindow::Show(const RECT& anchor, const std::vector<std::wstring>& 
     return;
   }
   if (!EnsureWindow()) return;
+  hint_ = false;
   items_ = items;
   notes_ = notes;
   selected_ = selected;
   page_ = page;
   page_count_ = page_count;
+  Layout(anchor);
+}
 
+void CandidateWindow::ShowHint(const RECT& anchor, const std::wstring& text) {
+  if (text.empty()) {
+    Hide();
+    return;
+  }
+  if (!EnsureWindow()) return;
+  hint_ = true;
+  items_ = {text};
+  notes_.clear();
+  selected_ = -1;
+  page_ = 0;
+  page_count_ = 0;
+  Layout(anchor);
+}
+
+void CandidateWindow::Layout(const RECT& anchor) {
   // 表示先のモニターの DPI
   POINT pt = {anchor.left, anchor.bottom};
   HMONITOR monitor = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
@@ -90,17 +109,19 @@ void CandidateWindow::Show(const RECT& anchor, const std::vector<std::wstring>& 
   TEXTMETRICW tm;
   GetTextMetricsW(hdc, &tm);
   row_height_ = tm.tmHeight + Scale(6);
-  int width = Scale(kMinWidth);
+  int width = hint_ ? 0 : Scale(kMinWidth);
   for (size_t i = 0; i < items_.size(); ++i) {
     SIZE sz{};
     std::wstring text = items_[i];
     if (i < notes_.size() && !notes_[i].empty()) text += L"   " + notes_[i];
     GetTextExtentPoint32W(hdc, text.c_str(), static_cast<int>(text.size()), &sz);
-    width = std::max(width, static_cast<int>(sz.cx) + Scale(kLabelWidth + kPadding * 4));
+    const int extra = hint_ ? Scale(kPadding * 4) : Scale(kLabelWidth + kPadding * 4);
+    width = std::max(width, static_cast<int>(sz.cx) + extra);
   }
   SelectObject(hdc, old);
   ReleaseDC(hwnd_, hdc);
-  const int height = row_height_ * static_cast<int>(items_.size() + 1) + Scale(kPadding * 2);
+  const int rows = static_cast<int>(items_.size()) + (hint_ ? 0 : 1);  // 候補のときはページ表示の行
+  const int height = row_height_ * rows + Scale(kPadding * 2);
 
   // 画面からはみ出さない位置
   MONITORINFO mi{};
@@ -131,8 +152,8 @@ int CandidateWindow::HitTest(int y) const {
 void CandidateWindow::Paint(HDC hdc) {
   RECT rc;
   GetClientRect(hwnd_, &rc);
-  const COLORREF bg = GetSysColor(COLOR_WINDOW);
-  const COLORREF fg = GetSysColor(COLOR_WINDOWTEXT);
+  const COLORREF bg = GetSysColor(hint_ ? COLOR_INFOBK : COLOR_WINDOW);
+  const COLORREF fg = GetSysColor(hint_ ? COLOR_INFOTEXT : COLOR_WINDOWTEXT);
   const COLORREF sel_bg = GetSysColor(COLOR_HIGHLIGHT);
   const COLORREF sel_fg = GetSysColor(COLOR_HIGHLIGHTTEXT);
   const COLORREF gray = GetSysColor(COLOR_GRAYTEXT);
@@ -142,6 +163,16 @@ void CandidateWindow::Paint(HDC hdc) {
   DeleteObject(bg_brush);
   HGDIOBJ old = SelectObject(hdc, font_);
   SetBkMode(hdc, TRANSPARENT);
+
+  if (hint_) {
+    RECT tr = {rc.left + Scale(kPadding * 2), rc.top + Scale(kPadding), rc.right - Scale(kPadding * 2),
+               rc.bottom - Scale(kPadding)};
+    SetTextColor(hdc, fg);
+    DrawTextW(hdc, items_[0].c_str(), static_cast<int>(items_[0].size()), &tr,
+              DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_NOPREFIX);
+    SelectObject(hdc, old);
+    return;
+  }
 
   for (size_t i = 0; i < items_.size(); ++i) {
     RECT row = {rc.left + Scale(kPadding), rc.top + Scale(kPadding) + row_height_ * static_cast<int>(i),
@@ -196,7 +227,7 @@ LRESULT CALLBACK CandidateWindow::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM
     case WM_ERASEBKGND:
       return 1;
     case WM_LBUTTONUP:
-      if (self != nullptr && self->on_click_) {
+      if (self != nullptr && self->on_click_ && !self->hint_) {
         int row = self->HitTest(static_cast<short>(HIWORD(lp)));
         if (row >= 0) self->on_click_(static_cast<size_t>(row));
       }

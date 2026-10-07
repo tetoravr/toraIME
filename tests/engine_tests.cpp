@@ -569,13 +569,58 @@ TEST(SessionCtrlKeysPassThroughWhenEmpty) {
 
 TEST(SessionLiveConversionOff) {
   Fixture f;
-  f.engine.config().live_conversion = false;
+  f.engine.config().live_conversion = LiveConversion::kOff;
   Session s(&f.engine);
   Output o;
   Type(s, "watashiha", &o);
   CHECK_EQ(o.preedit, u"わたしは");
   o = s.Process(KeyEvent::Of(KeyCode::kSpace));
   CHECK_EQ(o.preedit, u"私は");
+}
+
+TEST(SessionReadingHint) {
+  Fixture f;
+  Session s(&f.engine);
+  Output o;
+  Type(s, "watashihak", &o);
+  CHECK_EQ(o.preedit, u"私はk");
+  CHECK_EQ(o.reading, u"わたしはk");  // どこまで打ったかが分かる
+  Type(s, "ouen", &o);
+  CHECK_EQ(o.reading, u"わたしはこうえn");  // 末尾の n も打ったまま
+  // 表示が読みと同じなら出さない
+  s.Reset();
+  Type(s, "ka", &o);
+  CHECK_EQ(o.preedit, u"か");
+  CHECK_EQ(o.reading, u"");
+  // Esc でひらがな表示にしているときも出さない
+  s.Reset();
+  Type(s, "watashi");
+  o = s.Process(KeyEvent::Of(KeyCode::kEscape));
+  CHECK_EQ(o.reading, u"");
+  // 設定で無効にできる
+  s.Reset();
+  f.engine.config().reading_hint = false;
+  Type(s, "watashi", &o);
+  CHECK_EQ(o.reading, u"");
+}
+
+TEST(SessionKeepLastSegment) {
+  Fixture f;
+  f.engine.config().live_conversion = LiveConversion::kKeepLastSegment;
+  Session s(&f.engine);
+  Output o;
+  Type(s, "watashiha", &o);
+  CHECK_EQ(o.preedit, u"わたしは");  // 打っている文節はひらがなのまま
+  Type(s, "gakkouni", &o);
+  CHECK_EQ(o.preedit, u"私はがっこうに");  // 前の文節は変換される
+  Type(s, "test", &o);
+  CHECK_EQ(o.preedit, u"私は学校にtest");  // 英字は英字のまま
+  o = s.Process(KeyEvent::Of(KeyCode::kEnter));
+  CHECK_EQ(o.commit, u"私は学校にtest");  // 表示されているとおりに確定する
+  // Space で最後の文節も変換される
+  Type(s, "watashihagakkouni");
+  o = s.Process(KeyEvent::Of(KeyCode::kSpace));
+  CHECK_EQ(o.preedit, u"私は学校に");
 }
 
 TEST(SessionKanaInput) {

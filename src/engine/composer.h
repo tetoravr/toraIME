@@ -25,6 +25,8 @@ class Composer {
 
   // 未確定のローマ字も (末尾の n を「ん」にするなどして) 単位にした列
   Units GetUnits() const;
+  // 未確定のローマ字を打ったまま (n も英字のまま) 残した列。読みの表示に使う
+  Units GetUnitsAsTyped() const;
   const std::string& pending() const { return pending_; }
 
  private:
