@@ -52,13 +52,16 @@ foreach ($t in $targets) {
 Write-Host 'IME を登録しました。'
 
 # スタートメニューに設定アプリのショートカットを作る
-$shortcut = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'toraIME の設定.lnk'
+# (WScript.Shell は日本語のファイル名を扱えない環境があるので、英字の名前で作ってから名前を変える)
+$programs = [Environment]::GetFolderPath('CommonPrograms')
+$shortcut = Join-Path $programs 'toraIME の設定.lnk'
+$temp = Join-Path $programs 'toraIME-settings.lnk'
 $shell = New-Object -ComObject WScript.Shell
-$link = $shell.CreateShortcut($shortcut)
+$link = $shell.CreateShortcut($temp)
 $link.TargetPath = Join-Path $dest 'toraime_settings.exe'
 $link.IconLocation = (Join-Path $dest 'toraime_settings.exe') + ',0'
-$link.Description = 'toraIME の設定'
 $link.Save()
+Move-Item -LiteralPath $temp -Destination $shortcut -Force
 Write-Host 'スタートメニューに「toraIME の設定」を追加しました。'
 
 # 古いバージョンを片付ける (使用中のものは残す)
