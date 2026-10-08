@@ -1,18 +1,24 @@
 // toraIME の設定アプリ (toraime_settings.exe)
-// 設定は HKCU\Software\toraIME に保存する。IME は入力欄にフォーカスが戻ったときに読み直す。
+// 設定は HKCU\Software\toraIME に保存する (変更するとすぐ保存)。IME は入力欄にフォーカスが戻ったときに読み直す。
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #include <windows.h>
-#include <commctrl.h>
+#include <dwmapi.h>
 #include <shellapi.h>
+#include <windowsx.h>
 
+#include <cstring>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "../tsf/settings.h"
+#include "canvas.h"
 #include "resource.h"
+#include "settings_view.h"
+#include "theme.h"
 
 namespace toraime {
 HINSTANCE g_instance = nullptr;
@@ -22,99 +28,106 @@ using namespace toraime;
 
 namespace {
 
-enum ControlId : int {
-  kIdLive = 100,
-  kIdReadingHint,
-  kIdEnglish,
-  kIdLearning,
-  kIdConvertKeys,
-  kIdCapsLock,
-  kIdKanaInput,
-  kIdFullWidth,
-  kIdHalfKana,
-  kIdPunctuation,
-  kIdUserDict,
-  kIdUserEnglish,
-  kIdClearHistory,
-  kIdOk = IDOK,
-  kIdCancel = IDCANCEL,
-  kIdApply = 200,
-};
+constexpr wchar_t kClassName[] = L"toraIME.Settings";
+constexpr wchar_t kFont[] = L"Yu Gothic UI";
 
 struct App {
   HWND hwnd = nullptr;
-  HFONT font = nullptr;
   UINT dpi = 96;
-  int Scale(int v) const { return MulDiv(v, static_cast<int>(dpi), 96); }
+  tora::Config config;
+  bool dark = false;
+  std::unique_ptr<toraui::SettingsView> view;
+  std::unique_ptr<toraui::Canvas> background;  // 背景はキャッシュする
+  std::vector<uint32_t> icon;
+  int icon_size = 0;
+  bool tracking_mouse = false;
 };
 App g_app;
 
-HWND Item(int id) { return GetDlgItem(g_app.hwnd, id); }
+float Scale() { return static_cast<float>(g_app.dpi) / 96.0f; }
 
-HWND AddControl(const wchar_t* cls, const wchar_t* text, DWORD style, int x, int y, int w, int h, int id) {
-  HWND c = CreateWindowExW(0, cls, text, WS_CHILD | WS_VISIBLE | style, g_app.Scale(x), g_app.Scale(y),
-                           g_app.Scale(w), g_app.Scale(h), g_app.hwnd,
-                           reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), g_instance, nullptr);
-  SendMessageW(c, WM_SETFONT, reinterpret_cast<WPARAM>(g_app.font), TRUE);
-  return c;
-}
-
-void AddCheck(int id, const wchar_t* text, int x, int y, int w = 400) {
-  AddControl(L"BUTTON", text, BS_AUTOCHECKBOX | WS_TABSTOP, x, y, w, 22, id);
-}
-
-void AddCombo(int id, const wchar_t* label, const std::vector<const wchar_t*>& items, int x, int y) {
-  AddControl(L"STATIC", label, SS_LEFT | SS_CENTERIMAGE, x, y, 120, 24, 0);
-  HWND combo = AddControl(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP | WS_VSCROLL, x + 124, y, 260, 200, id);
-  for (const wchar_t* item : items) SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item));
-}
-
-void AddGroup(const wchar_t* text, int x, int y, int w, int h) {
-  AddControl(L"BUTTON", text, BS_GROUPBOX, x, y, w, h, 0);
-}
-
-void SetCheck(int id, bool on) { SendMessageW(Item(id), BM_SETCHECK, on ? BST_CHECKED : BST_UNCHECKED, 0); }
-bool GetCheck(int id) { return SendMessageW(Item(id), BM_GETCHECK, 0, 0) == BST_CHECKED; }
-void SetCombo(int id, int index) { SendMessageW(Item(id), CB_SETCURSEL, static_cast<WPARAM>(index), 0); }
-int GetCombo(int id) { return static_cast<int>(SendMessageW(Item(id), CB_GETCURSEL, 0, 0)); }
-
-// 表示の順番と設定値の対応
-const tora::LiveConversion kLiveOrder[] = {tora::LiveConversion::kFull,
-                                           tora::LiveConversion::kKeepLastSegment,
-                                           tora::LiveConversion::kOff};
-
-void Load() {
-  const tora::Config c = LoadConfig();
-  for (int i = 0; i < 3; ++i) {
-    if (kLiveOrder[i] == c.live_conversion) SetCombo(kIdLive, i);
+// アイコンをストレートアルファの ARGB にする
+std::vector<uint32_t> IconPixels(HICON icon, int size) {
+  std::vector<uint32_t> out(static_cast<size_t>(size) * size, 0);
+  BITMAPINFO bmi{};
+  bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+  bmi.bmiHeader.biWidth = size;
+  bmi.bmiHeader.biHeight = -size;
+  bmi.bmiHeader.biPlanes = 1;
+  bmi.bmiHeader.biBitCount = 32;
+  bmi.bmiHeader.biCompression = BI_RGB;
+  void* bits = nullptr;
+  HDC dc = CreateCompatibleDC(nullptr);
+  HBITMAP bmp = CreateDIBSection(dc, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+  if (bmp != nullptr && bits != nullptr) {
+    std::memset(bits, 0, out.size() * 4);
+    HGDIOBJ old = SelectObject(dc, bmp);
+    DrawIconEx(dc, 0, 0, icon, size, size, 0, nullptr, DI_NORMAL);
+    GdiFlush();
+    const auto* src = static_cast<const uint32_t*>(bits);
+    for (size_t i = 0; i < out.size(); ++i) {
+      const uint32_t p = src[i];
+      const uint32_t a = p >> 24;
+      if (a == 0) continue;
+      auto un = [a](uint32_t c) { return std::min<uint32_t>(255, c * 255 / a); };
+      out[i] = (a << 24) | (un((p >> 16) & 0xFF) << 16) | (un((p >> 8) & 0xFF) << 8) | un(p & 0xFF);
+    }
+    SelectObject(dc, old);
+    DeleteObject(bmp);
   }
-  SetCheck(kIdReadingHint, c.reading_hint);
-  SetCheck(kIdEnglish, c.english_detection);
-  SetCheck(kIdLearning, c.learning);
-  SetCheck(kIdConvertKeys, c.convert_keys_on_off);
-  SetCheck(kIdCapsLock, c.caps_lock_disabled);
-  SetCheck(kIdKanaInput, c.kana_input_enabled);
-  SetCombo(kIdFullWidth, static_cast<int>(c.full_width));
-  SetCheck(kIdHalfKana, c.half_width_kana_enabled);
-  SetCombo(kIdPunctuation, static_cast<int>(c.punctuation));
+  DeleteDC(dc);
+  return out;
 }
 
-void Save() {
-  tora::Config c = LoadConfig();
-  int live = GetCombo(kIdLive);
-  if (live >= 0 && live < 3) c.live_conversion = kLiveOrder[live];
-  c.reading_hint = GetCheck(kIdReadingHint);
-  c.english_detection = GetCheck(kIdEnglish);
-  c.learning = GetCheck(kIdLearning);
-  c.convert_keys_on_off = GetCheck(kIdConvertKeys);
-  c.caps_lock_disabled = GetCheck(kIdCapsLock);
-  c.kana_input_enabled = GetCheck(kIdKanaInput);
-  int fw = GetCombo(kIdFullWidth);
-  if (fw >= 0 && fw <= 2) c.full_width = static_cast<tora::FullWidthMode>(fw);
-  c.half_width_kana_enabled = GetCheck(kIdHalfKana);
-  int punct = GetCombo(kIdPunctuation);
-  if (punct >= 0 && punct <= 3) c.punctuation = static_cast<tora::PunctuationStyle>(punct);
-  SaveConfig(c);
+void ApplyWindowTheme() {
+  // タイトルバーも背景の色に合わせる (Windows 11)
+  const BOOL dark = g_app.dark ? TRUE : FALSE;
+  DwmSetWindowAttribute(g_app.hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &dark, sizeof(dark));
+  const toraui::Theme t = toraui::Theme::ForMode(g_app.dark);
+  const COLORREF caption = RGB(static_cast<int>(t.bg_top.r * 255), static_cast<int>(t.bg_top.g * 255),
+                               static_cast<int>(t.bg_top.b * 255));
+  DwmSetWindowAttribute(g_app.hwnd, 35 /* DWMWA_CAPTION_COLOR */, &caption, sizeof(caption));
+  const int round = 2;  // DWMWCP_ROUND
+  DwmSetWindowAttribute(g_app.hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &round, sizeof(round));
+}
+
+void Rebuild() {
+  g_app.view = std::make_unique<toraui::SettingsView>(Scale(), kFont, kFont);
+  g_app.icon_size = static_cast<int>(52 * Scale());
+  HICON icon = static_cast<HICON>(LoadImageW(g_instance, MAKEINTRESOURCEW(IDI_TORAIME), IMAGE_ICON, 256, 256, 0));
+  if (icon != nullptr) {
+    g_app.view->SetIcon(IconPixels(icon, 256), 256, 256);
+    DestroyIcon(icon);
+  }
+  g_app.background.reset();
+}
+
+void Paint(HDC hdc) {
+  const toraui::SizeI size = g_app.view->size();
+  const toraui::Theme theme = toraui::Theme::ForMode(g_app.dark);
+  if (!g_app.background) {
+    g_app.background = std::make_unique<toraui::Canvas>(size.w, size.h);
+    g_app.view->DrawBackground(*g_app.background, theme);
+  }
+  toraui::Canvas canvas = *g_app.background;
+  g_app.view->Draw(canvas, theme, g_app.config);
+  BITMAPINFO bmi{};
+  bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+  bmi.bmiHeader.biWidth = size.w;
+  bmi.bmiHeader.biHeight = -size.h;
+  bmi.bmiHeader.biPlanes = 1;
+  bmi.bmiHeader.biBitCount = 32;
+  bmi.bmiHeader.biCompression = BI_RGB;
+  void* bits = nullptr;
+  HBITMAP bmp = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+  if (bmp == nullptr || bits == nullptr) return;
+  std::memcpy(bits, canvas.pixels(), static_cast<size_t>(size.w) * size.h * 4);
+  HDC mem = CreateCompatibleDC(hdc);
+  HGDIOBJ old = SelectObject(mem, bmp);
+  BitBlt(hdc, 0, 0, size.w, size.h, mem, 0, 0, SRCCOPY);
+  SelectObject(mem, old);
+  DeleteDC(mem);
+  DeleteObject(bmp);
 }
 
 void OpenWithNotepad(const std::filesystem::path& path) {
@@ -127,8 +140,7 @@ void OpenWithNotepad(const std::filesystem::path& path) {
 }
 
 void ClearHistory() {
-  if (MessageBoxW(g_app.hwnd, L"学習履歴をすべて消去しますか?", L"toraIME",
-                  MB_OKCANCEL | MB_ICONQUESTION) != IDOK) {
+  if (MessageBoxW(g_app.hwnd, L"学習履歴をすべて消去しますか?", L"toraIME", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) {
     return;
   }
   const std::filesystem::path dir = UserDataDirectory();
@@ -138,67 +150,111 @@ void ClearHistory() {
   MessageBoxW(g_app.hwnd, L"学習履歴を消去しました。", L"toraIME", MB_ICONINFORMATION);
 }
 
-void CreateControls() {
-  int y = 12;
-  AddGroup(L"入力", 12, y, 420, 132);
-  AddCombo(kIdLive, L"入力中の表示",
-           {L"すべて自動で変換する", L"入力中の文節はひらがなのまま", L"変換しない (Space で変換)"}, 24, y + 22);
-  AddCheck(kIdReadingHint, L"入力した読みを下に表示する", 24, y + 52);
-  AddCheck(kIdEnglish, L"英単語は英字のまま入力する", 24, y + 76);
-  AddCheck(kIdLearning, L"変換を学習する", 24, y + 100);
-  y += 144;
-  AddGroup(L"キー", 12, y, 420, 104);
-  AddCheck(kIdConvertKeys, L"変換キーでオン / 無変換キーでオフ", 24, y + 24);
-  AddCheck(kIdCapsLock, L"CapsLock を無効にする", 24, y + 48);
-  AddCheck(kIdKanaInput, L"かな入力を使えるようにする (Alt+カタカナひらがな)", 24, y + 72);
-  y += 116;
-  AddGroup(L"文字", 12, y, 420, 112);
-  AddCombo(kIdFullWidth, L"全角英数字",
-           {L"使わない (常に半角)", L"候補と F9 だけで使う", L"入力した英数字を全角にする"}, 24, y + 22);
-  AddCheck(kIdHalfKana, L"半角カタカナを使う", 24, y + 52);
-  AddCombo(kIdPunctuation, L"句読点", {L"、。", L"，．", L"，。", L"、．"}, 24, y + 78);
-  y += 124;
-  AddGroup(L"辞書", 12, y, 420, 60);
-  AddControl(L"BUTTON", L"ユーザー辞書を開く", BS_PUSHBUTTON | WS_TABSTOP, 24, y + 22, 128, 28, kIdUserDict);
-  AddControl(L"BUTTON", L"英単語リストを開く", BS_PUSHBUTTON | WS_TABSTOP, 160, y + 22, 128, 28, kIdUserEnglish);
-  AddControl(L"BUTTON", L"学習履歴を消去", BS_PUSHBUTTON | WS_TABSTOP, 296, y + 22, 124, 28, kIdClearHistory);
-  y += 72;
-  AddControl(L"BUTTON", L"OK", BS_DEFPUSHBUTTON | WS_TABSTOP, 172, y, 82, 28, kIdOk);
-  AddControl(L"BUTTON", L"キャンセル", BS_PUSHBUTTON | WS_TABSTOP, 262, y, 82, 28, kIdCancel);
-  AddControl(L"BUTTON", L"適用", BS_PUSHBUTTON | WS_TABSTOP, 352, y, 80, 28, kIdApply);
+void HandleAction(toraui::SettingsView::Action action) {
+  using A = toraui::SettingsView::Action;
+  switch (action) {
+    case A::kChanged:
+      SaveConfig(g_app.config);
+      break;
+    case A::kOpenUserDict:
+      OpenWithNotepad(EnsureUserFile(L"user_dict.txt"));
+      break;
+    case A::kOpenUserEnglish:
+      OpenWithNotepad(EnsureUserFile(L"user_english.txt"));
+      break;
+    case A::kClearHistory:
+      ClearHistory();
+      break;
+    case A::kClose:
+      DestroyWindow(g_app.hwnd);
+      return;
+    case A::kNone:
+      break;
+  }
+  InvalidateRect(g_app.hwnd, nullptr, FALSE);
+}
+
+void ResizeToContent(const RECT* suggested) {
+  const toraui::SizeI size = g_app.view->size();
+  RECT rc = {0, 0, size.w, size.h};
+  const DWORD style = static_cast<DWORD>(GetWindowLongPtrW(g_app.hwnd, GWL_STYLE));
+  AdjustWindowRectExForDpi(&rc, style, FALSE, 0, g_app.dpi);
+  int x = suggested ? suggested->left : 0, y = suggested ? suggested->top : 0;
+  SetWindowPos(g_app.hwnd, nullptr, x, y, rc.right - rc.left, rc.bottom - rc.top,
+               SWP_NOZORDER | SWP_NOACTIVATE | (suggested ? 0 : SWP_NOMOVE));
 }
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+  using Key = toraui::SettingsView::Key;
   switch (msg) {
-    case WM_COMMAND:
-      switch (LOWORD(wp)) {
-        case kIdOk:
-          Save();
-          DestroyWindow(hwnd);
-          return 0;
-        case kIdCancel:
-          DestroyWindow(hwnd);
-          return 0;
-        case kIdApply:
-          Save();
-          return 0;
-        case kIdUserDict:
-          OpenWithNotepad(EnsureUserFile(L"user_dict.txt"));
-          return 0;
-        case kIdUserEnglish:
-          OpenWithNotepad(EnsureUserFile(L"user_english.txt"));
-          return 0;
-        case kIdClearHistory:
-          ClearHistory();
-          return 0;
-        default:
-          break;
+    case WM_PAINT: {
+      PAINTSTRUCT ps;
+      HDC hdc = BeginPaint(hwnd, &ps);
+      if (g_app.view) Paint(hdc);
+      EndPaint(hwnd, &ps);
+      return 0;
+    }
+    case WM_ERASEBKGND:
+      return 1;
+    case WM_MOUSEMOVE:
+      if (!g_app.tracking_mouse) {
+        TRACKMOUSEEVENT tme{sizeof(tme), TME_LEAVE, hwnd, 0};
+        TrackMouseEvent(&tme);
+        g_app.tracking_mouse = true;
+      }
+      if (g_app.view->Hover(static_cast<float>(GET_X_LPARAM(lp)), static_cast<float>(GET_Y_LPARAM(lp)))) {
+        InvalidateRect(hwnd, nullptr, FALSE);
+      }
+      return 0;
+    case WM_MOUSELEAVE:
+      g_app.tracking_mouse = false;
+      if (g_app.view->Hover(-1, -1)) InvalidateRect(hwnd, nullptr, FALSE);
+      return 0;
+    case WM_SETCURSOR:
+      if (LOWORD(lp) == HTCLIENT) {
+        SetCursor(LoadCursor(nullptr, IDC_ARROW));
+        return TRUE;
       }
       break;
-    case WM_CTLCOLORSTATIC:
-    case WM_CTLCOLORBTN:
-      SetBkMode(reinterpret_cast<HDC>(wp), TRANSPARENT);
-      return reinterpret_cast<LRESULT>(GetSysColorBrush(COLOR_WINDOW));
+    case WM_LBUTTONUP:
+      HandleAction(g_app.view->Click(static_cast<float>(GET_X_LPARAM(lp)), static_cast<float>(GET_Y_LPARAM(lp)),
+                                     &g_app.config));
+      return 0;
+    case WM_KEYDOWN: {
+      const bool shift = GetKeyState(VK_SHIFT) < 0;
+      switch (wp) {
+        case VK_TAB: HandleAction(g_app.view->KeyPress(shift ? Key::kShiftTab : Key::kTab, &g_app.config)); return 0;
+        case VK_SPACE:
+        case VK_RETURN: HandleAction(g_app.view->KeyPress(Key::kActivate, &g_app.config)); return 0;
+        case VK_LEFT: HandleAction(g_app.view->KeyPress(Key::kLeft, &g_app.config)); return 0;
+        case VK_RIGHT: HandleAction(g_app.view->KeyPress(Key::kRight, &g_app.config)); return 0;
+        case VK_ESCAPE: DestroyWindow(hwnd); return 0;
+        default: break;
+      }
+      break;
+    }
+    case WM_DPICHANGED:
+      g_app.dpi = HIWORD(wp);
+      Rebuild();
+      ResizeToContent(reinterpret_cast<const RECT*>(lp));
+      InvalidateRect(hwnd, nullptr, FALSE);
+      return 0;
+    case WM_SETTINGCHANGE:
+      // ライト/ダークの切り替え
+      if (lp != 0 && wcscmp(reinterpret_cast<const wchar_t*>(lp), L"ImmersiveColorSet") == 0) {
+        g_app.dark = toraui::IsAppDarkMode();
+        g_app.background.reset();
+        ApplyWindowTheme();
+        InvalidateRect(hwnd, nullptr, FALSE);
+      }
+      break;
+    case WM_ACTIVATE:
+      // 他のアプリで設定が変わっているかもしれない
+      if (LOWORD(wp) != WA_INACTIVE) {
+        g_app.config = LoadConfig();
+        InvalidateRect(hwnd, nullptr, FALSE);
+      }
+      break;
     case WM_DESTROY:
       PostQuitMessage(0);
       return 0;
@@ -212,12 +268,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
   g_instance = instance;
-  INITCOMMONCONTROLSEX icc{sizeof(icc), ICC_STANDARD_CLASSES};
-  InitCommonControlsEx(&icc);
 
   // 二重起動しない
-  HWND existing = FindWindowW(L"toraIME.Settings", nullptr);
-  if (existing != nullptr) {
+  if (HWND existing = FindWindowW(kClassName, nullptr)) {
+    ShowWindow(existing, SW_RESTORE);
     SetForegroundWindow(existing);
     return 0;
   }
@@ -227,31 +281,33 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
   wc.lpfnWndProc = WndProc;
   wc.hInstance = instance;
   wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-  wc.hbrBackground = GetSysColorBrush(COLOR_WINDOW);
   wc.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(IDI_TORAIME));
-  wc.lpszClassName = L"toraIME.Settings";
+  wc.lpszClassName = kClassName;
   RegisterClassExW(&wc);
 
+  g_app.config = LoadConfig();
+  g_app.dark = toraui::IsAppDarkMode();
   g_app.dpi = GetDpiForSystem();
-  g_app.font = CreateFontW(-g_app.Scale(12), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                           OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                           DEFAULT_PITCH | FF_DONTCARE, L"Yu Gothic UI");
-  RECT rc = {0, 0, g_app.Scale(444), g_app.Scale(536)};
+  Rebuild();
+
   const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
-  AdjustWindowRectExForDpi(&rc, style, FALSE, 0, g_app.dpi);
-  g_app.hwnd = CreateWindowExW(0, wc.lpszClassName, L"toraIME の設定", style, CW_USEDEFAULT, CW_USEDEFAULT,
-                               rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, instance, nullptr);
+  g_app.hwnd = CreateWindowExW(0, kClassName, L"toraIME の設定", style, CW_USEDEFAULT, CW_USEDEFAULT, 100, 100,
+                               nullptr, nullptr, instance, nullptr);
   if (g_app.hwnd == nullptr) return 1;
-  CreateControls();
-  Load();
+  // 表示するモニターの DPI に合わせる
+  const UINT dpi = GetDpiForWindow(g_app.hwnd);
+  if (dpi != g_app.dpi) {
+    g_app.dpi = dpi;
+    Rebuild();
+  }
+  ApplyWindowTheme();
+  ResizeToContent(nullptr);
   ShowWindow(g_app.hwnd, show);
 
   MSG msg;
   while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
-    if (IsDialogMessageW(g_app.hwnd, &msg)) continue;
     TranslateMessage(&msg);
     DispatchMessageW(&msg);
   }
-  DeleteObject(g_app.font);
   return 0;
 }

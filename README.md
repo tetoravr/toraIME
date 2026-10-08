@@ -6,6 +6,18 @@ Windows 11 向けの日本語 IME です。
 - **英字は変換しません**: `windows`、`test`、`iPhone`、`PC` のような英単語は、ローマ字にせず英字のまま入力されます。
 - **全角とかな入力を無効にできます**: 全角英数字・全角記号・全角スペースを一切出さない設定 (既定) と、うっかり切り替わりがちな「かな入力」を無効にする設定 (既定) があります。
 
+<p>
+  <img src="docs/ime_light.png" width="420" alt="候補ウィンドウ (ライト)">
+  <img src="docs/ime_dark.png" width="420" alt="候補ウィンドウ (ダーク)">
+</p>
+<p>
+  <img src="docs/settings_light.png" width="420" alt="設定 (ライト)">
+  <img src="docs/settings_dark.png" width="420" alt="設定 (ダーク)">
+</p>
+
+候補ウィンドウ・読みの表示・設定画面は、すりガラスのようなグラスモーフィズムのデザインで、Windows のライト/ダークに合わせて切り替わります。
+(画像は `tools/ui_preview.cpp` で、実際と同じ描画コードから作ったものです。文字は Linux のフォントで描いています)
+
 ```
 watashihaenglishgasuki   → 私はenglishが好き
 Windowsnosettei          → Windowsの設定
@@ -170,6 +182,7 @@ src/engine/   変換エンジン (OS 非依存)
   session     入力中 / 変換中 の状態機械とキー操作
 src/tsf/      Windows の Text Services Framework (TSF) テキストサービス
 src/settings_app/  設定アプリ (toraime_settings.exe)
+src/ui/       グラスモーフィズムの描画 (角丸・影・グラデーション・文字。OS 非依存の部分は Linux でもプレビューできる)
 tools/        辞書の生成 (Mozc OSS 辞書 → toraime.dic)、アイコンの生成
 tests/        エンジンのテスト、TSF のスモークテスト
 ```

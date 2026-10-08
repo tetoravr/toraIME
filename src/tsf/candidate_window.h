@@ -1,10 +1,13 @@
-// 変換候補の一覧を表示するポップアップウィンドウ
+// 変換候補と入力した読みを表示するポップアップ (グラスモーフィズム)
+// ピクセル単位のアルファを持つレイヤードウィンドウに、src/ui の描画をそのまま出す。
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
+#include "candidate_view.h"
 #include "common.h"
 
 namespace toraime {
@@ -31,24 +34,17 @@ class CandidateWindow {
  private:
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
   bool EnsureWindow();
-  void Layout(const RECT& anchor);
-  void Paint(HDC hdc);
-  int HitTest(int y) const;
-  int Scale(int v) const;
+  void Render(const RECT& anchor);
 
   HWND hwnd_ = nullptr;
   bool visible_ = false;
-  ClickCallback on_click_;
-  std::vector<std::wstring> items_;
-  std::vector<std::wstring> notes_;
-  int selected_ = -1;
-  size_t page_ = 0;
-  size_t page_count_ = 0;
-  UINT dpi_ = 96;
-  HFONT font_ = nullptr;
-  UINT font_dpi_ = 0;
-  int row_height_ = 0;
   bool hint_ = false;
+  ClickCallback on_click_;
+  toraui::CandidateModel model_;
+  std::wstring hint_text_;
+  float scale_ = 0;
+  std::unique_ptr<toraui::Fonts> fonts_;
+  std::unique_ptr<toraui::CandidateView> view_;
 };
 
 }  // namespace toraime
