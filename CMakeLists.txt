@@ -77,6 +77,22 @@ if(TORA_BUILD_TSF)
   endif()
   set_target_properties(toraime PROPERTIES PREFIX "")
 
+  # 設定アプリ
+  add_executable(toraime_settings WIN32
+    src/settings_app/main.cpp
+    src/settings_app/settings_app.rc
+    src/tsf/settings.cpp
+  )
+  target_include_directories(toraime_settings PRIVATE src/settings_app)
+  target_compile_definitions(toraime_settings PRIVATE _WIN32_WINNT=0x0A00)
+  target_link_libraries(toraime_settings PRIVATE tora_engine comctl32 ole32 uuid shell32 advapi32 user32 gdi32)
+  if(MSVC)
+    # マニフェストは .rc で埋め込む
+    target_link_options(toraime_settings PRIVATE /MANIFEST:NO)
+  else()
+    target_link_options(toraime_settings PRIVATE -municode -static -static-libgcc -static-libstdc++)
+  endif()
+
   # 自前の GUID 定義が SDK と一致するかの確認 (SDK の定義がある MSVC のみ)
   if(MSVC AND TORA_BUILD_TESTS)
     add_executable(tsf_guid_check tests/tsf_guid_check.cpp src/tsf/guids.cpp)
@@ -100,6 +116,7 @@ if(Python3_FOUND)
     COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tools/fetch_mozc.py ${CMAKE_BINARY_DIR}/mozc
     COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tools/build_dict.py ${CMAKE_BINARY_DIR}/mozc
             ${CMAKE_BINARY_DIR}/toraime.dic
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/tools/build_english.py ${CMAKE_BINARY_DIR}
     COMMENT "Mozc の辞書データから toraime.dic を作ります"
     VERBATIM)
 endif()

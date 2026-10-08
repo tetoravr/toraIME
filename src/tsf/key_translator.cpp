@@ -30,10 +30,11 @@ const KanaKey kKanaKeys[] = {
 
 }  // namespace
 
-bool TranslateKey(WPARAM vk, LPARAM lparam, bool kana_input, tora::KeyEvent* out) {
+bool TranslateKey(WPARAM vk, LPARAM lparam, bool kana_input, bool ignore_caps_lock, tora::KeyEvent* out) {
   using tora::KeyCode;
   BYTE state[256];
   if (!GetKeyboardState(state)) return false;
+  if (ignore_caps_lock) state[VK_CAPITAL] &= static_cast<BYTE>(~1);
   tora::KeyEvent k;
   k.shift = Down(state, VK_SHIFT);
   k.ctrl = Down(state, VK_CONTROL);

@@ -32,6 +32,9 @@ if (Test-Path $root) {
 }
 Write-Host 'IME の登録を解除しました。'
 
+$shortcut = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'toraIME の設定.lnk'
+if (Test-Path $shortcut) { Remove-Item $shortcut -Force }
+
 try {
   Remove-Item $root -Recurse -Force -ErrorAction Stop
   Write-Host "$root を削除しました。"

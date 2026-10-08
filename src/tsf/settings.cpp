@@ -41,6 +41,38 @@ bool IsAppContainer() {
 
 }  // namespace
 
+namespace {
+DWORD g_seen_history_generation = 0;
+}
+
+DWORD ReadHistoryGeneration() {
+  DWORD gen = 0;
+  HKEY key;
+  if (RegOpenKeyExW(HKEY_CURRENT_USER, kRegKey, 0, KEY_READ, &key) == ERROR_SUCCESS) {
+    gen = ReadDword(key, L"HistoryGeneration", 0);
+    RegCloseKey(key);
+  }
+  return gen;
+}
+
+void BumpHistoryGeneration() {
+  HKEY key;
+  if (RegCreateKeyExW(HKEY_CURRENT_USER, kRegKey, 0, nullptr, 0, KEY_READ | KEY_WRITE, nullptr, &key,
+                      nullptr) != ERROR_SUCCESS) {
+    return;
+  }
+  WriteDword(key, L"HistoryGeneration", ReadDword(key, L"HistoryGeneration", 0) + 1);
+  RegCloseKey(key);
+}
+
+void ClearHistoryEverywhere() {
+  tora::Engine* engine = GetEngine();
+  engine->history().Clear();
+  engine->history().Save();
+  BumpHistoryGeneration();
+  g_seen_history_generation = ReadHistoryGeneration();
+}
+
 tora::Config LoadConfig() {
   tora::Config c;
   HKEY key;
@@ -57,6 +89,7 @@ tora::Config LoadConfig() {
   c.reading_hint = ReadDword(key, L"ReadingHint", c.reading_hint) != 0;
   c.learning = ReadDword(key, L"Learning", c.learning) != 0;
   c.convert_keys_on_off = ReadDword(key, L"ConvertKeysOnOff", c.convert_keys_on_off) != 0;
+  c.caps_lock_disabled = ReadDword(key, L"DisableCapsLock", c.caps_lock_disabled) != 0;
   RegCloseKey(key);
   return c;
 }
@@ -76,6 +109,7 @@ void SaveConfig(const tora::Config& c) {
   WriteDword(key, L"ReadingHint", c.reading_hint);
   WriteDword(key, L"Learning", c.learning);
   WriteDword(key, L"ConvertKeysOnOff", c.convert_keys_on_off);
+  WriteDword(key, L"DisableCapsLock", c.caps_lock_disabled);
   RegCloseKey(key);
 }
 
@@ -147,10 +181,21 @@ tora::Engine* GetEngine() {
       engine->LoadUserEnglishWords(user_dir / L"user_english.txt");
       engine->SetHistoryPath(user_dir / L"history.tsv");
     }
+    engine->LoadLargeEnglishWords(data_dir / L"english_large.txt");
+    g_seen_history_generation = ReadHistoryGeneration();
   });
   return engine;
 }
 
-void ReloadConfig() { GetEngine()->config() = LoadConfig(); }
+void ReloadConfig() {
+  tora::Engine* engine = GetEngine();
+  engine->config() = LoadConfig();
+  // 設定アプリや別のプロセスで学習履歴が消去されていたら、こちらのメモリ上の履歴も消す
+  const DWORD gen = ReadHistoryGeneration();
+  if (gen != g_seen_history_generation) {
+    g_seen_history_generation = gen;
+    engine->history().Clear();
+  }
+}
 
 }  // namespace toraime

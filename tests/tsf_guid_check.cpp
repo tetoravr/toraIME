@@ -32,6 +32,7 @@ int main() {
   CHECK_GUID(kIID_ITfLangBarItem, IID_ITfLangBarItem);
   CHECK_GUID(kIID_ITfLangBarItemButton, IID_ITfLangBarItemButton);
   CHECK_GUID(kIID_ITfLangBarItemSink, IID_ITfLangBarItemSink);
+  CHECK_GUID(kIID_ITfMenu, IID_ITfMenu);
   CHECK_GUID(kIID_ITfSource, IID_ITfSource);
   CHECK_GUID(kIID_ITfKeystrokeMgr, IID_ITfKeystrokeMgr);
   CHECK_GUID(kIID_ITfLangBarItemMgr, IID_ITfLangBarItemMgr);

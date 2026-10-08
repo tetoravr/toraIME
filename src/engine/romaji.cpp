@@ -66,6 +66,7 @@ const Rule kRules[] = {
     {"la", u"ぁ"}, {"li", u"ぃ"}, {"lu", u"ぅ"}, {"le", u"ぇ"}, {"lo", u"ぉ"},
     {"xya", u"ゃ"}, {"xyu", u"ゅ"}, {"xyo", u"ょ"}, {"lya", u"ゃ"}, {"lyu", u"ゅ"}, {"lyo", u"ょ"},
     {"xtu", u"っ"}, {"xtsu", u"っ"}, {"ltu", u"っ"}, {"ltsu", u"っ"},
+    {"zh", u"←"}, {"zj", u"↓"}, {"zk", u"↑"}, {"zl", u"→"},
     {"xwa", u"ゎ"}, {"lwa", u"ゎ"}, {"xka", u"ヵ"}, {"lka", u"ヵ"}, {"xke", u"ヶ"}, {"lke", u"ヶ"},
 };
 

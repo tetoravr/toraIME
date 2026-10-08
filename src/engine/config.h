@@ -34,6 +34,7 @@ struct Config {
   bool reading_hint = true;              // 自動変換中、入力した読みを未確定文字列の下に表示する
   bool learning = true;                  // 選んだ候補を学習する
   bool convert_keys_on_off = true;       // 変換キーでオン、無変換キーでオフ
+  bool caps_lock_disabled = true;        // CapsLock を無効にする (オンになったらすぐ戻し、大文字入力にもしない)
   PunctuationStyle punctuation = PunctuationStyle::kTouten;
 
   bool full_width_allowed() const { return full_width != FullWidthMode::kDisabled; }

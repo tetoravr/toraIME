@@ -70,6 +70,7 @@ class TextService : public ITfTextInputProcessorEx,
 
  private:
   bool HandleKey(ITfContext* ctx, WPARAM vk, LPARAM lp, bool test);
+  void TurnOffCapsLockIfNeeded();
   bool IsKeyboardDisabled(ITfContext* ctx) const;
   bool KanaInputActive() const;
   void SetOpen(bool open);
@@ -107,6 +108,7 @@ class TextService : public ITfTextInputProcessorEx,
   bool syncing_ = false;  // 自分でコンパートメントを書いている最中
   ULONGLONG last_toggle_tick_ = 0;
   WPARAM last_toggle_vk_ = 0;
+  ULONGLONG last_caps_off_tick_ = 0;
 };
 
 }  // namespace toraime

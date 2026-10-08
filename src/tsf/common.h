@@ -90,6 +90,7 @@ extern const IID kIID_ITfDisplayAttributeInfo;
 extern const IID kIID_IEnumTfDisplayAttributeInfo;
 extern const IID kIID_ITfLangBarItem;
 extern const IID kIID_ITfLangBarItemButton;
+extern const IID kIID_ITfMenu;
 extern const IID kIID_ITfLangBarItemSink;
 extern const IID kIID_ITfSource;
 extern const IID kIID_ITfKeystrokeMgr;

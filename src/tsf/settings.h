@@ -3,6 +3,11 @@
 
 #include <filesystem>
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
 #include "config.h"
 #include "engine.h"
 
@@ -21,6 +26,12 @@ std::filesystem::path UserDataDirectory();
 
 // ユーザー辞書などのファイルが無ければ説明付きで作ってから、そのパスを返す
 std::filesystem::path EnsureUserFile(const wchar_t* name);
+
+// 学習履歴の消去を、他のプロセスの IME にも伝えるための世代番号 (レジストリ)
+DWORD ReadHistoryGeneration();
+void BumpHistoryGeneration();
+// このプロセスの学習履歴を消して保存し、他のプロセスにも伝える
+void ClearHistoryEverywhere();
 
 // プロセスで共有するエンジン (初回呼び出し時に辞書を読み込む)
 tora::Engine* GetEngine();

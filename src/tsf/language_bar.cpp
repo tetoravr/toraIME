@@ -3,6 +3,7 @@
 #include <shellapi.h>
 
 #include <cwchar>
+#include <string>
 
 #include "settings.h"
 #include "text_service.h"
@@ -22,6 +23,7 @@ enum MenuId : UINT {
   kMenuHalfKana,
   kMenuLearning,
   kMenuConvertKeys,
+  kMenuCapsLock,
   kMenuFullWidthOff = 20,
   kMenuFullWidthCandidates,
   kMenuFullWidthDefault,
@@ -35,7 +37,80 @@ enum MenuId : UINT {
   kMenuUserDict = 40,
   kMenuUserEnglish,
   kMenuClearHistory,
+  kMenuSettings,
 };
+
+// ITfMenu を Win32 のメニューに作るアダプター。
+// Windows 8 以降のタスクバーの入力モード表示は右クリックで OnClick を呼ぶだけなので、
+// メニューは IME が自分で TrackPopupMenu で出す必要がある。
+class Win32Menu : public ITfMenu {
+ public:
+  explicit Win32Menu(HMENU menu) : menu_(menu) {}
+  virtual ~Win32Menu() = default;
+
+  STDMETHODIMP QueryInterface(REFIID riid, void** ppv) override {
+    if (ppv == nullptr) return E_INVALIDARG;
+    if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, kIID_ITfMenu)) {
+      *ppv = static_cast<ITfMenu*>(this);
+      AddRef();
+      return S_OK;
+    }
+    *ppv = nullptr;
+    return E_NOINTERFACE;
+  }
+  STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
+  STDMETHODIMP_(ULONG) Release() override {
+    ULONG r = --ref_;
+    if (r == 0) delete this;
+    return r;
+  }
+  STDMETHODIMP AddMenuItem(UINT id, DWORD flags, HBITMAP, HBITMAP, const WCHAR* text, ULONG cch,
+                           ITfMenu** sub) override {
+    if (sub != nullptr) *sub = nullptr;
+    const std::wstring label(text != nullptr ? text : L"", cch);
+    if (flags & TF_LBMENUF_SEPARATOR) {
+      AppendMenuW(menu_, MF_SEPARATOR, 0, nullptr);
+      return S_OK;
+    }
+    MENUITEMINFOW mii{};
+    mii.cbSize = sizeof(mii);
+    mii.fMask = MIIM_FTYPE | MIIM_STATE | MIIM_ID | MIIM_STRING;
+    mii.fType = (flags & TF_LBMENUF_RADIOCHECKED) ? MFT_RADIOCHECK : MFT_STRING;
+    mii.fState = ((flags & (TF_LBMENUF_CHECKED | TF_LBMENUF_RADIOCHECKED)) ? MFS_CHECKED : 0) |
+                 ((flags & TF_LBMENUF_GRAYED) ? MFS_GRAYED : 0);
+    mii.wID = id;
+    mii.dwTypeData = const_cast<wchar_t*>(label.c_str());
+    if (flags & TF_LBMENUF_SUBMENU) {
+      HMENU popup = CreatePopupMenu();
+      mii.fMask |= MIIM_SUBMENU;
+      mii.hSubMenu = popup;
+      if (sub != nullptr) *sub = new Win32Menu(popup);
+    }
+    InsertMenuItemW(menu_, GetMenuItemCount(menu_), TRUE, &mii);
+    return S_OK;
+  }
+
+ private:
+  std::atomic<ULONG> ref_{1};
+  HMENU menu_;
+};
+
+constexpr wchar_t kMenuOwnerClass[] = L"toraIME.MenuOwner";
+
+HWND MenuOwnerWindow() {
+  static bool registered = false;
+  if (!registered) {
+    WNDCLASSEXW wc{};
+    wc.cbSize = sizeof(wc);
+    wc.lpfnWndProc = DefWindowProcW;
+    wc.hInstance = g_instance;
+    wc.lpszClassName = kMenuOwnerClass;
+    if (RegisterClassExW(&wc) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return nullptr;
+    registered = true;
+  }
+  return CreateWindowExW(WS_EX_TOOLWINDOW, kMenuOwnerClass, L"", WS_POPUP, 0, 0, 0, 0, nullptr, nullptr,
+                         g_instance, nullptr);
+}
 
 void AddItem(ITfMenu* menu, UINT id, const wchar_t* text, DWORD flags = 0, ITfMenu** sub = nullptr) {
   menu->AddMenuItem(id, flags, nullptr, nullptr, text, static_cast<ULONG>(wcslen(text)), sub);
@@ -121,6 +196,8 @@ HICON CreateLabelIcon(const wchar_t* label) {
   return icon;
 }
 
+void UnregisterMenuOwnerClass() { UnregisterClassW(kMenuOwnerClass, g_instance); }
+
 LanguageBarButton::LanguageBarButton(TextService* service) : service_(service) { DllAddRef(); }
 
 LanguageBarButton::~LanguageBarButton() { DllRelease(); }
@@ -178,9 +255,34 @@ STDMETHODIMP LanguageBarButton::GetTooltipString(BSTR* tooltip) {
   return *tooltip ? S_OK : E_OUTOFMEMORY;
 }
 
-STDMETHODIMP LanguageBarButton::OnClick(TfLBIClick click, POINT, const RECT*) {
-  if (service_ != nullptr && click == TF_LBI_CLK_LEFT) service_->ToggleOpen();
+STDMETHODIMP LanguageBarButton::OnClick(TfLBIClick click, POINT pt, const RECT*) {
+  if (service_ == nullptr) return S_OK;
+  if (click == TF_LBI_CLK_LEFT) {
+    service_->ToggleOpen();
+  } else if (click == TF_LBI_CLK_RIGHT) {
+    ShowPopupMenu(pt);
+  }
   return S_OK;
+}
+
+void LanguageBarButton::ShowPopupMenu(POINT pt) {
+  HMENU menu = CreatePopupMenu();
+  if (menu == nullptr) return;
+  Win32Menu* adapter = new Win32Menu(menu);
+  InitMenu(adapter);
+  adapter->Release();
+  HWND owner = MenuOwnerWindow();
+  if (owner != nullptr) {
+    ComPtr<LanguageBarButton> self(this);  // メニュー表示中に解放されないように
+    SetForegroundWindow(owner);
+    UINT cmd = static_cast<UINT>(TrackPopupMenuEx(
+        menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN | TPM_LEFTALIGN, pt.x, pt.y,
+        owner, nullptr));
+    PostMessageW(owner, WM_NULL, 0, 0);
+    DestroyWindow(owner);
+    if (cmd != 0) OnMenuSelect(cmd);
+  }
+  DestroyMenu(menu);  // サブメニューもまとめて破棄される
 }
 
 STDMETHODIMP LanguageBarButton::InitMenu(ITfMenu* menu) {
@@ -212,6 +314,7 @@ STDMETHODIMP LanguageBarButton::InitMenu(ITfMenu* menu) {
   AddItem(menu, kMenuEnglish, L"英単語は英字のまま入力する", Check(c.english_detection));
   AddItem(menu, kMenuLearning, L"変換を学習する", Check(c.learning));
   AddItem(menu, kMenuConvertKeys, L"変換キーでオン / 無変換キーでオフ", Check(c.convert_keys_on_off));
+  AddItem(menu, kMenuCapsLock, L"CapsLock を無効にする", Check(c.caps_lock_disabled));
   AddItem(menu, 0, L"", TF_LBMENUF_SEPARATOR);
 
   ITfMenu* sub = nullptr;
@@ -241,6 +344,8 @@ STDMETHODIMP LanguageBarButton::InitMenu(ITfMenu* menu) {
   AddItem(menu, kMenuUserDict, L"ユーザー辞書を開く", user_flags);
   AddItem(menu, kMenuUserEnglish, L"英単語リストを開く", user_flags);
   AddItem(menu, kMenuClearHistory, L"学習履歴を消去", user_flags);
+  AddItem(menu, 0, L"", TF_LBMENUF_SEPARATOR);
+  AddItem(menu, kMenuSettings, L"設定を開く...");
   return S_OK;
 }
 
@@ -260,6 +365,12 @@ STDMETHODIMP LanguageBarButton::OnMenuSelect(UINT id) {
     case kMenuEnglish: c.english_detection = !c.english_detection; break;
     case kMenuLearning: c.learning = !c.learning; break;
     case kMenuConvertKeys: c.convert_keys_on_off = !c.convert_keys_on_off; break;
+    case kMenuCapsLock: c.caps_lock_disabled = !c.caps_lock_disabled; break;
+    case kMenuSettings:
+      ShellExecuteW(nullptr, L"open", (DataDirectory() / L"toraime_settings.exe").c_str(), nullptr, nullptr,
+                    SW_SHOWNORMAL);
+      changed = false;
+      break;
     case kMenuKanaInput: c.kana_input_enabled = !c.kana_input_enabled; break;
     case kMenuHalfKana: c.half_width_kana_enabled = !c.half_width_kana_enabled; break;
     case kMenuFullWidthOff: c.full_width = tora::FullWidthMode::kDisabled; break;
@@ -276,8 +387,7 @@ STDMETHODIMP LanguageBarButton::OnMenuSelect(UINT id) {
     case kMenuClearHistory:
       if (MessageBoxW(nullptr, L"学習履歴をすべて消去しますか?", L"toraIME",
                       MB_OKCANCEL | MB_ICONQUESTION | MB_TOPMOST) == IDOK) {
-        engine->history().Clear();
-        engine->history().Save();
+        ClearHistoryEverywhere();
       }
       changed = false;
       break;

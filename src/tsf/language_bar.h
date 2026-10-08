@@ -39,8 +39,13 @@ class LanguageBarButton : public ITfLangBarItemButton, public ITfSource {
  private:
   std::atomic<ULONG> ref_{1};
   TextService* service_;
+  void ShowPopupMenu(POINT pt);
+
   ComPtr<ITfLangBarItemSink> sink_;
 };
+
+// DLL のアンロード時に呼ぶ
+void UnregisterMenuOwnerClass();
 
 // 1 文字のラベルからタスクバー用のアイコンを作る
 HICON CreateLabelIcon(const wchar_t* label);

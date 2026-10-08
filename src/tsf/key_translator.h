@@ -20,6 +20,7 @@ constexpr WPARAM kVkOemEnlw = 0xF4;
 
 // キーを KeyEvent にする。IME が扱わないキー (修飾キー単体など) なら false
 // kana_input が true なら JIS かな配列で文字を決める
-bool TranslateKey(WPARAM vk, LPARAM lparam, bool kana_input, tora::KeyEvent* out);
+// ignore_caps_lock が true なら CapsLock の状態を無視する (Shift だけで大文字・小文字が決まる)
+bool TranslateKey(WPARAM vk, LPARAM lparam, bool kana_input, bool ignore_caps_lock, tora::KeyEvent* out);
 
 }  // namespace toraime

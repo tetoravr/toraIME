@@ -1,6 +1,7 @@
 // DLL のエントリーポイントと COM サーバーとしての公開関数
 #include "candidate_window.h"
 #include "class_factory.h"
+#include "language_bar.h"
 #include "common.h"
 #include "registry.h"
 
@@ -26,6 +27,7 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID) {
   } else if (reason == DLL_PROCESS_DETACH) {
     // DLL が登録したウィンドウクラスはアンロード時に自動では消えないので消しておく
     CandidateWindow::UnregisterWindowClass();
+    UnregisterMenuOwnerClass();
   }
   return TRUE;
 }

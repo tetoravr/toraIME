@@ -23,6 +23,7 @@ class Engine {
   bool LoadEnglishWords(const std::filesystem::path& path);
   bool LoadUserDictionary(const std::filesystem::path& path);
   bool LoadUserEnglishWords(const std::filesystem::path& path);
+  bool LoadLargeEnglishWords(const std::filesystem::path& path);
   void SetHistoryPath(const std::filesystem::path& path);
 
   Config& config() { return config_; }
@@ -31,6 +32,7 @@ class Engine {
   const SystemDictionary& dictionary() const { return dict_; }
   History& history() { return history_; }
   EnglishWords& english() { return english_; }
+  EnglishWords& english_large() { return english_large_; }
   UserDictionary& user_dictionary() { return user_; }
 
   // 選ばれた候補を学習して保存する
@@ -42,6 +44,7 @@ class Engine {
   UserDictionary user_;
   History history_;
   EnglishWords english_;
+  EnglishWords english_large_;
   Converter converter_;
 };
 

@@ -77,6 +77,24 @@ void Composer::InsertChar(char c) {
     FlushPending(false);
     return;
   }
+  // z と記号で特殊な記号 (Google 日本語入力と同じ)
+  if (pending_ == "z") {
+    const char16_t* sym = nullptr;
+    switch (c) {
+      case '.': sym = u"…"; break;
+      case ',': sym = u"‥"; break;
+      case '/': sym = u"・"; break;
+      case '-': sym = u"〜"; break;
+      case '[': sym = u"『"; break;
+      case ']': sym = u"』"; break;
+      default: break;
+    }
+    if (sym != nullptr) {
+      pending_.clear();
+      AddUnit(UnitKind::kSymbol, std::string("z") + c, sym);
+      return;
+    }
+  }
   if (c == '\'' && pending_ == "n") {
     pending_.push_back(c);
     FlushPending(false);

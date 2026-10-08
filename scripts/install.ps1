@@ -35,7 +35,8 @@ foreach ($t in $targets) {
   New-Item -ItemType Directory -Force (Join-Path $dest $t.Dir) | Out-Null
   Copy-Item (Join-Path $src "$($t.Dir)\toraime.dll") (Join-Path $dest "$($t.Dir)\toraime.dll") -Force
 }
-foreach ($f in 'toraime.dic', 'english_words.txt', 'MOZC_DICTIONARY_README.txt', 'README.md') {
+foreach ($f in 'toraime.dic', 'english_words.txt', 'english_large.txt', 'toraime_settings.exe',
+               'MOZC_DICTIONARY_README.txt', 'ENGLISH_WORDS_README.txt', 'README.md') {
   if (Test-Path (Join-Path $src $f)) { Copy-Item (Join-Path $src $f) (Join-Path $dest $f) -Force }
 }
 foreach ($f in 'uninstall.ps1', 'uninstall.cmd') {
@@ -49,6 +50,16 @@ foreach ($t in $targets) {
   if ($code -ne 0) { throw "$dll の登録に失敗しました (regsvr32: $code)" }
 }
 Write-Host 'IME を登録しました。'
+
+# スタートメニューに設定アプリのショートカットを作る
+$shortcut = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'toraIME の設定.lnk'
+$shell = New-Object -ComObject WScript.Shell
+$link = $shell.CreateShortcut($shortcut)
+$link.TargetPath = Join-Path $dest 'toraime_settings.exe'
+$link.IconLocation = (Join-Path $dest 'toraime_settings.exe') + ',0'
+$link.Description = 'toraIME の設定'
+$link.Save()
+Write-Host 'スタートメニューに「toraIME の設定」を追加しました。'
 
 # 古いバージョンを片付ける (使用中のものは残す)
 $kept = @()

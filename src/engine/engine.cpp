@@ -2,7 +2,9 @@
 
 namespace tora {
 
-Engine::Engine() : converter_(&dict_, &user_, &history_, &english_, &config_) {}
+Engine::Engine() : converter_(&dict_, &user_, &history_, &english_, &config_) {
+  converter_.set_english_large(&english_large_);
+}
 
 bool Engine::LoadSystemDictionary(const std::filesystem::path& path) {
   return dict_.OpenFile(path);
@@ -18,6 +20,10 @@ bool Engine::LoadUserDictionary(const std::filesystem::path& path) { return user
 
 bool Engine::LoadUserEnglishWords(const std::filesystem::path& path) {
   return english_.LoadFile(path);
+}
+
+bool Engine::LoadLargeEnglishWords(const std::filesystem::path& path) {
+  return english_large_.LoadFile(path);
 }
 
 void Engine::SetHistoryPath(const std::filesystem::path& path) {

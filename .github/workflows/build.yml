@@ -19,13 +19,14 @@ jobs:
         id: cache
         with:
           path: dict
-          key: dict-${{ hashFiles('tools/fetch_mozc.py', 'tools/build_dict.py') }}
+          key: dict-${{ hashFiles('tools/fetch_mozc.py', 'tools/build_dict.py', 'tools/build_english.py') }}
       - name: Mozc の辞書データから toraime.dic を作る
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
           python3 tools/fetch_mozc.py mozc
           python3 tools/build_dict.py mozc dict/toraime.dic
           cp mozc/README.txt dict/MOZC_DICTIONARY_README.txt
+          python3 tools/build_english.py dict
       - uses: actions/upload-artifact@v4
         with:
           name: dictionary
@@ -88,7 +89,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: toraime-${{ matrix.dir }}
-          path: build/Release/toraime.dll
+          path: |
+            build/Release/toraime.dll
+            build/Release/toraime_settings.exe
           retention-days: 7
 
   package:
@@ -107,6 +110,8 @@ jobs:
           cp artifacts/toraime-x86/toraime.dll dist/toraIME/x86/
           cp artifacts/dictionary/toraime.dic dist/toraIME/
           cp artifacts/dictionary/MOZC_DICTIONARY_README.txt dist/toraIME/
+          cp artifacts/dictionary/english_large.txt artifacts/dictionary/ENGLISH_WORDS_README.txt dist/toraIME/
+          cp artifacts/toraime-x64/toraime_settings.exe dist/toraIME/
           cp data/english_words.txt dist/toraIME/
           cp scripts/install.ps1 scripts/uninstall.ps1 scripts/install.cmd scripts/uninstall.cmd dist/toraIME/
           cp README.md dist/toraIME/
@@ -138,7 +143,11 @@ jobs:
           Write-Host "1st: $first"
           if (-not (Test-Path $first)) { throw 'DLL not found' }
           $firstDir = Split-Path (Split-Path $first)
-          if (-not (Test-Path "$firstDir\toraime.dic")) { throw 'dictionary not installed' }
+          foreach ($f in 'toraime.dic', 'english_large.txt', 'toraime_settings.exe') {
+            if (-not (Test-Path "$firstDir\$f")) { throw "$f not installed" }
+          }
+          $programs = [Environment]::GetFolderPath('CommonPrograms')
+          if (-not (Get-ChildItem $programs -Filter 'toraIME*.lnk')) { throw 'shortcut not created' }
 
           # 起動中のアプリが辞書を開いている状態 (削除を許さない共有モード) で入れ直す
           $lock = [System.IO.File]::Open("$firstDir\toraime.dic", 'Open', 'Read', 'Read')
@@ -159,3 +168,4 @@ jobs:
           & "$root\uninstall.ps1"
           if (Test-Path "HKLM:\SOFTWARE\Classes\CLSID\$clsid") { throw 'CLSID was not removed' }
           if (Test-Path $root) { throw 'install folder was not removed' }
+          if (Get-ChildItem $programs -Filter 'toraIME*.lnk') { throw 'shortcut was not removed' }

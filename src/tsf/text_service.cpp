@@ -200,14 +200,33 @@ STDMETHODIMP TextService::OnKeyDown(ITfContext* ctx, WPARAM wp, LPARAM lp, BOOL*
   return S_OK;
 }
 
-STDMETHODIMP TextService::OnTestKeyUp(ITfContext*, WPARAM, LPARAM, BOOL* eaten) {
+STDMETHODIMP TextService::OnTestKeyUp(ITfContext*, WPARAM wp, LPARAM, BOOL* eaten) {
   if (eaten) *eaten = FALSE;
+  // CapsLock を離したときにオンになっていたら戻す
+  if (wp == VK_CAPITAL) TurnOffCapsLockIfNeeded();
   return S_OK;
 }
 
-STDMETHODIMP TextService::OnKeyUp(ITfContext*, WPARAM, LPARAM, BOOL* eaten) {
+STDMETHODIMP TextService::OnKeyUp(ITfContext*, WPARAM wp, LPARAM, BOOL* eaten) {
   if (eaten) *eaten = FALSE;
+  if (wp == VK_CAPITAL) TurnOffCapsLockIfNeeded();
   return S_OK;
+}
+
+void TextService::TurnOffCapsLockIfNeeded() {
+  if (!GetEngine()->config().caps_lock_disabled) return;
+  if ((GetKeyState(VK_CAPITAL) & 1) == 0) return;
+  // 自分で送った CapsLock の入力が反映されるまでに何度も送らないようにする
+  const ULONGLONG now = GetTickCount64();
+  if (now - last_caps_off_tick_ < 500) return;
+  last_caps_off_tick_ = now;
+  INPUT inputs[2] = {};
+  inputs[0].type = INPUT_KEYBOARD;
+  inputs[0].ki.wVk = VK_CAPITAL;
+  inputs[1].type = INPUT_KEYBOARD;
+  inputs[1].ki.wVk = VK_CAPITAL;
+  inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
+  SendInput(2, inputs, sizeof(INPUT));
 }
 
 STDMETHODIMP TextService::OnPreservedKey(ITfContext*, REFGUID, BOOL* eaten) {
@@ -230,6 +249,8 @@ bool TextService::KanaInputActive() const {
 bool TextService::HandleKey(ITfContext* ctx, WPARAM vk, LPARAM lp, bool test) {
   if (!session_ || IsKeyboardDisabled(ctx)) return false;
   const tora::Config& config = GetEngine()->config();
+  if (vk == VK_CAPITAL) return false;  // 切り替えは離したときに戻す (OnKeyUp)
+  if (!test && config.caps_lock_disabled) TurnOffCapsLockIfNeeded();
   const bool open = IsOpen();
   const bool composing = session_->IsComposing();
   const bool alt = GetKeyState(VK_MENU) < 0;
@@ -295,7 +316,7 @@ bool TextService::HandleKey(ITfContext* ctx, WPARAM vk, LPARAM lp, bool test) {
   }
 
   if (!open) return false;
-  if (!translated && !TranslateKey(vk, lp, KanaInputActive(), &key)) return false;
+  if (!translated && !TranslateKey(vk, lp, KanaInputActive(), config.caps_lock_disabled, &key)) return false;
   if (!session_->WouldConsume(key)) return false;
   if (test) return true;
   tora::Output out = session_->Process(key);

@@ -16,6 +16,64 @@ constexpr size_t kMaxHeadCandidates = 60;
 constexpr size_t kMaxWholeCandidates = 20;
 constexpr size_t kMaxChainPieces = 80;
 
+// 記号の候補。打った記号 (の並び) ごとに。全角英数記号 (U+FF01..FF5E) は全角が有効なときだけ出す
+struct SymbolVariants {
+  const char16_t* key;
+  std::vector<const char16_t*> variants;
+};
+
+const std::vector<SymbolVariants>& SymbolTable() {
+  static const std::vector<SymbolVariants> table = {
+      {u"(", {u"（", u"「", u"『", u"【", u"〔", u"［", u"｛", u"〈", u"《", u"("}},
+      {u")", {u"）", u"」", u"』", u"】", u"〕", u"］", u"｝", u"〉", u"》", u")"}},
+      {u"()", {u"（）", u"「」", u"『』", u"【】", u"〔〕", u"［］", u"｛｝", u"〈〉", u"《》", u"()"}},
+      {u"[", {u"「", u"『", u"【", u"［", u"〔", u"（", u"["}},
+      {u"]", {u"」", u"』", u"】", u"］", u"〕", u"）", u"]"}},
+      {u"[]", {u"「」", u"『』", u"【】", u"［］", u"〔〕", u"（）", u"[]"}},
+      {u"{", {u"｛", u"「", u"『", u"【", u"{"}},
+      {u"}", {u"｝", u"」", u"』", u"】", u"}"}},
+      {u"{}", {u"｛｝", u"「」", u"『』", u"【】", u"{}"}},
+      {u"<", {u"＜", u"〈", u"《", u"←", u"≦", u"<"}},
+      {u">", {u"＞", u"〉", u"》", u"→", u"≧", u">"}},
+      {u"<>", {u"〈〉", u"《》", u"＜＞", u"<>"}},
+      {u"\"", {u"“", u"”", u"＂", u"\""}},
+      {u"\"\"", {u"“”", u"「」", u"『』", u"\"\""}},
+      {u"'", {u"‘", u"’", u"＇", u"'"}},
+      {u"-", {u"ー", u"－", u"―", u"‐", u"−", u"〜", u"-"}},
+      {u"~", {u"〜", u"～", u"~"}},
+      {u"!", {u"！", u"!"}},
+      {u"?", {u"？", u"?"}},
+      {u"!?", {u"！？", u"⁉", u"!?"}},
+      {u".", {u"。", u"．", u"…", u"・", u"."}},
+      {u",", {u"、", u"，", u","}},
+      {u"...", {u"…", u"‥", u"..."}},
+      {u"/", {u"・", u"／", u"÷", u"/"}},
+      {u":", {u"：", u"…", u":"}},
+      {u";", {u"；", u";"}},
+      {u"*", {u"※", u"＊", u"×", u"★", u"☆", u"*"}},
+      {u"+", {u"＋", u"±", u"+"}},
+      {u"=", {u"＝", u"≠", u"≒", u"="}},
+      {u"%", {u"％", u"%"}},
+      {u"#", {u"＃", u"♯", u"#"}},
+      {u"&", {u"＆", u"&"}},
+      {u"@", {u"＠", u"@"}},
+      {u"$", {u"＄", u"$"}},
+      {u"^", {u"＾", u"↑", u"^"}},
+      {u"_", {u"＿", u"_"}},
+      {u"|", {u"｜", u"|"}},
+      {u"\\", {u"＼", u"￥", u"¥", u"\\"}},
+      {u"`", {u"｀", u"`"}},
+  };
+  return table;
+}
+
+bool IsFullWidthAsciiVariant(std::u16string_view s) {
+  for (char16_t c : s) {
+    if (c >= 0xFF01 && c <= 0xFF5E) return true;
+  }
+  return false;
+}
+
 }  // namespace
 
 std::u16string Converter::ApplyWidth(std::u16string_view ascii) const {
@@ -29,6 +87,12 @@ int Converter::Connection(uint16_t rid, uint16_t lid) const {
 
 uint8_t Converter::PosFlags(uint16_t id) const {
   return dict_ != nullptr ? dict_->PosFlags(id) : 0;
+}
+
+bool Converter::IsKnownEnglish(const std::string& lower, const std::string& raw) const {
+  if (english_ != nullptr && english_->Contains(lower)) return true;
+  if (english_large_ != nullptr && english_large_->Contains(lower)) return true;
+  return HistoryBonus(AsciiToU16(lower), AsciiToU16(raw)) > 0;
 }
 
 int Converter::HistoryBonus(std::u16string_view reading, std::u16string_view surface) const {
@@ -162,13 +226,45 @@ void Converter::AddAsciiNodes(const Input& input, const std::vector<Piece>& chai
   const bool run_continues = IsAsciiAlpha(input.RawCharAt(run_end));
   const uint16_t noun = dict_ != nullptr ? dict_->id_noun() : 0;
 
+  auto add_span = [&](size_t len, int cost, NodeKind kind) {
+    const std::string raw = run.substr(0, len);
+    Node n;
+    n.begin = p;
+    n.end = p + static_cast<uint32_t>(len);
+    n.surface = ApplyWidth(AsciiToU16(raw));
+    n.reading = AsciiToU16(AsciiLower(raw));
+    n.lid = n.rid = noun;
+    n.cost = cost;
+    n.kind = kind;
+    out->push_back(std::move(n));
+  };
+
+  if (upper) {
+    // 大文字で始まる語は英字にする。どこまでを英字にするかは
+    //   1. 先頭からの英単語 (固有名詞を含む辞書・学習した英字) … 複数あれば後ろの日本語の自然さで選ぶ
+    //   2. 大文字の続き (PCwo -> PC + を)
+    //   3. 英字の続き全部
+    // の順に決める。"Claudenikiku" を "Clau" + "で..." と区切らないようにするため。
+    bool found = false;
+    for (size_t len = 2; len <= run.size(); ++len) {
+      const std::string raw = run.substr(0, len);
+      if (IsKnownEnglish(AsciiLower(raw), raw)) {
+        add_span(len, kUpperSpanBase - 50 * static_cast<int>(len), NodeKind::kEnglish);
+        found = true;
+      }
+    }
+    if (!found) {
+      size_t uppers = 0;
+      while (uppers < run.size() && IsAsciiUpper(run[uppers])) ++uppers;
+      add_span(uppers >= 2 && uppers < run.size() ? uppers : run.size(), kUpperSpanBase,
+               NodeKind::kAsciiSpan);
+    }
+    return;
+  }
+
   bool has_junk = false;
-  int span_cost = kUpperSpanBase;
   for (size_t len = 1; len <= run.size() && len <= static_cast<size_t>(kMaxAsciiSpan); ++len) {
-    const char ch = run[len - 1];
-    const bool is_junk = junk[len - 1] && !IsAsciiUpper(ch);
-    has_junk = has_junk || is_junk;
-    span_cost += IsAsciiUpper(ch) ? kUpperSpanPerUpper : (is_junk ? kUpperSpanPerJunk : kUpperSpanPerLower);
+    has_junk = has_junk || junk[len - 1];
 
     const uint32_t q = p + static_cast<uint32_t>(len);
     const std::string raw = run.substr(0, len);
@@ -198,9 +294,7 @@ void Converter::AddAsciiNodes(const Input& input, const std::vector<Piece>& chai
         add(cost - bonus, NodeKind::kEnglish);
       }
     }
-    if (upper) {
-      add(span_cost, NodeKind::kAsciiSpan);
-    } else if (detect && has_junk) {
+    if (has_junk) {
       add(kAsciiSpanBase + kAsciiSpanPerChar * static_cast<int>(len), NodeKind::kAsciiSpan);
     }
   }
@@ -407,6 +501,16 @@ std::vector<Candidate> Converter::GetCandidates(const Input& input,
 
   // 1. 現在の表記
   add(head_surface + tail_surface, head_reading, head_surface);
+
+  // 記号だけの文節は記号の候補 (「(」->「「」など)
+  const std::u16string raw_all = input.Raw(begin, end);
+  for (const auto& entry : SymbolTable()) {
+    if (raw_all != entry.key) continue;
+    for (const char16_t* v : entry.variants) {
+      if (IsFullWidthAsciiVariant(v) && !config_->full_width_allowed()) continue;
+      add(v, {}, {}, u"記号");
+    }
+  }
 
   // 2. 学習済みの表記
   if (history_ != nullptr && config_->learning) {

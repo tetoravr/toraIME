@@ -23,6 +23,7 @@ kaigiha3jikaradesu       → 会議は3時からです
    - 新しいバージョンに入れ替えるときも、アプリを閉じずにそのまま実行できます (起動中のアプリは再起動すると新しいバージョンになります)。
    - 日本語のキーボード一覧に toraIME を追加します。
 3. **Win + Space** で toraIME に切り替えます。起動中のアプリは再起動すると使えるようになります。
+4. 設定はスタートメニューの「**toraIME の設定**」か、タスクバーの「あ」を右クリックして変えられます。
 
 アンインストールは `C:\Program Files\toraIME\uninstall.cmd` を実行します。
 
@@ -71,20 +72,31 @@ kaigiha3jikaradesu       → 会議は3時からです
 
 タスクバーの「あ」「A」をクリックするとオン/オフ、右クリックすると設定メニューが出ます。
 
+### 記号
+
+| 入力 | 結果 |
+| --- | --- |
+| `[` `]` | 「 」 |
+| `,` `.` `/` `-` | 、 。 ・ ー |
+| `zh` `zj` `zk` `zl` | ← ↓ ↑ → |
+| `z.` `z,` `z/` `z-` `z[` `z]` | … ‥ ・ 〜 『 』 |
+
+記号だけの文節を Space で変換すると、`()` → 「」『』【】〈〉《》…、`*` → ※★☆×… のような記号の候補が出ます (全角英数字が無効なときは （） ＊ などの全角記号は出ません)。
+
 ## 英字の判定
 
 ひらがなモードのまま英単語を打っても、次の場合は英字のまま入力されます。
 
 1. **英単語リストにある語** (`data/english_words.txt`): `game`、`test`、`windows` など。ただし `made` (まで) や `site` (して) のように日本語として自然なものは日本語が優先されます。
 2. **ローマ字にならない綴りを含む語**: `xyzzy`、`nft` など。
-3. **大文字で始めた語**: `Tokyo`、`PC`、`McDonald` など。
+3. **大文字で始めた語**: `Claude`、`Tokyo`、`PC` など。続けて日本語を打っても、人名・地名を含む英単語辞書で語の切れ目を判断します (`Claudenikiku` → Claudeに聞く、`PCwokidou` → PCを起動)。辞書に無い語は英字が続くところまで英字になります。
 4. **一度英字を選んだ語**: 変換中に F10 や候補で英字を選ぶと学習して、次から英字になります。
 
 自分で単語を足したいときは、設定メニューの「英単語リストを開く」(`%APPDATA%\toraIME\user_english.txt`) に 1 行 1 語で書きます。
 
 ## 設定
 
-タスクバーの入力モード表示 (「あ」) を右クリックしたメニューで変えられます。設定は `HKEY_CURRENT_USER\Software\toraIME` に保存されます。
+スタートメニューの「toraIME の設定」か、タスクバーの入力モード表示 (「あ」) を右クリックしたメニューで変えられます。設定は `HKEY_CURRENT_USER\Software\toraIME` に保存され、起動中のアプリにも次に入力欄を選んだときに反映されます。
 
 | メニュー | 値の名前 | 既定 |
 | --- | --- | --- |
@@ -93,12 +105,15 @@ kaigiha3jikaradesu       → 会議は3時からです
 | 英単語は英字のまま入力する | `EnglishDetection` | オン |
 | 変換を学習する | `Learning` | オン |
 | 変換キーでオン / 無変換キーでオフ | `ConvertKeysOnOff` | オン |
+| CapsLock を無効にする | `DisableCapsLock` | オン |
 | 全角英数字: 使わない / 候補と F9 だけで使う / 入力した英数字を全角にする | `FullWidth` (0/1/2) | 使わない |
 | かな入力を使えるようにする | `KanaInput` | オフ |
 | 半角カタカナを使う | `HalfWidthKana` | オフ |
 | 句読点: 、。 / ，． / ，。 / 、． | `Punctuation` (0〜3) | 、。 |
 
 「入力中の文節はひらがなのまま」では、いま打っている文節だけ読みのまま表示し、次の文節を打ち始めると前の文節が漢字になります。Enter では表示されているとおりに確定するので、最後の文節を漢字にしたいときは Space で変換してから確定します。
+
+「CapsLock を無効にする」では、toraIME を使っている間に CapsLock (JIS キーボードでは Shift+英数) がオンになると、すぐにオフに戻します。オンのままになっていても、入力する英字は Shift キーだけで大文字・小文字が決まります。
 
 「全角英数字: 使わない」では、全角英数モード・F9・全角の候補・全角スペースがすべて出なくなり、`!` `?` などの記号も半角になります (「、」「。」「ー」「「」」などの日本語の記号はそのままです)。
 
@@ -121,6 +136,7 @@ kaigiha3jikaradesu       → 会議は3時からです
 # 辞書 (Mozc のオープンソース辞書をダウンロードして変換します)
 python tools/fetch_mozc.py build/mozc
 python tools/build_dict.py build/mozc build/toraime.dic
+python tools/build_english.py build   # 大文字で始めた語の判定に使う英単語リスト
 
 # 64bit 版と 32bit 版の DLL
 cmake -S . -B build/x64 -A x64
@@ -132,7 +148,7 @@ cmake --build build/x86 --config Release
 ctest --test-dir build/x64 -C Release --output-on-failure
 ```
 
-開発中は、`toraime.dic` と `data/english_words.txt` を DLL と同じフォルダー (またはその親フォルダー) に置き、管理者のコマンドプロンプトで `regsvr32 toraime.dll` すると登録できます。
+開発中は、`toraime.dic`・`english_large.txt`・`data/english_words.txt` を DLL と同じフォルダー (またはその親フォルダー) に置き、管理者のコマンドプロンプトで `regsvr32 toraime.dll` すると登録できます。
 
 変換エンジン (`src/engine`) は OS に依存しないので、Linux や macOS でもビルドしてテストできます。
 
@@ -153,6 +169,7 @@ src/engine/   変換エンジン (OS 非依存)
               英単語・英字列・大文字で始まる語もノードとして日本語と競わせる
   session     入力中 / 変換中 の状態機械とキー操作
 src/tsf/      Windows の Text Services Framework (TSF) テキストサービス
+src/settings_app/  設定アプリ (toraime_settings.exe)
 tools/        辞書の生成 (Mozc OSS 辞書 → toraime.dic)、アイコンの生成
 tests/        エンジンのテスト、TSF のスモークテスト
 ```
@@ -165,5 +182,7 @@ tests/        エンジンのテスト、TSF のスモークテスト
 - 辞書は Mozc のオープンソース版 (IPAdic ベース) で、Google 日本語入力の辞書より語彙が少なめです。
 
 ## ライセンス
+
+英単語リスト `english_large.txt` は [SCOWL](http://wordlist.aspell.net/) 由来の Hunspell 英語辞書 (LibreOffice の dictionaries リポジトリ) から生成しています。ライセンスは配布物の `ENGLISH_WORDS_README.txt` を参照してください。アイコンは `assets/icon.png` です。
 
 辞書データは [Mozc](https://github.com/google/mozc) のオープンソース辞書 (`src/data/dictionary_oss`) から生成しています。辞書のライセンス (IPAdic・沖縄辞書など) は配布物の `MOZC_DICTIONARY_README.txt` を参照してください。

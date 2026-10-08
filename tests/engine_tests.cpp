@@ -3,6 +3,7 @@
 //   engine_tests --dic PATH  本物の辞書 (toraime.dic) での変換結果も確認する
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <functional>
 #include <string>
 #include <type_traits>
@@ -131,6 +132,7 @@ struct Fixture {
   Fixture() {
     engine.LoadSystemDictionaryImage(MakeTestDictionary());
     for (const char* w : {"test", "game", "windows", "hello", "iphone", "github"}) engine.english().Add(w);
+    for (const char* w : {"Claude", "Tokyo", "Mack", "Mac", "Win", "Window"}) engine.english_large().Add(w);
   }
   std::string Convert(const std::string& keys) {
     Composer c(&engine.config());
@@ -229,6 +231,36 @@ TEST(ComposerFullWidthSymbols) {
   }
 }
 
+TEST(ComposerZKeys) {
+  Config cfg;
+  Composer c(&cfg);
+  for (char ch : std::string("zhzlz.z[z]z-zkza")) c.InsertChar(ch);
+  Input in(c.GetUnits());
+  CHECK_EQ(in.Reading(0, in.size()), u"←→…『』〜↑ざ");
+}
+
+TEST(SymbolCandidates) {
+  Fixture f;
+  Session s(&f.engine);
+  Output o;
+  Type(s, "()");
+  o = s.Process(KeyEvent::Of(KeyCode::kSpace));
+  CHECK_EQ(o.preedit, u"()");
+  bool has_kagi = false, has_fullwidth = false;
+  for (const auto& c : o.candidates) {
+    if (c == u"「」") has_kagi = true;
+    if (c == u"（）") has_fullwidth = true;
+  }
+  CHECK(has_kagi);        // 「」が候補に出る
+  CHECK(!has_fullwidth);  // 全角が無効なら全角括弧は出さない
+  // 「(」だけでも「「」を選べる
+  s.Reset();
+  Type(s, "(");
+  o = s.Process(KeyEvent::Of(KeyCode::kSpace));
+  o = s.Process(KeyEvent::Of(KeyCode::kSpace));
+  CHECK_EQ(o.preedit, u"「");
+}
+
 TEST(ComposerBackspace) {
   Config cfg;
   Composer c(&cfg);
@@ -325,6 +357,12 @@ TEST(ConvertUppercase) {
   CHECK_EQ(f.Convert("PCwosuru"), "PCを|する");
   CHECK_EQ(f.Convert("Tokyoni"), "Tokyoに");
   CHECK_EQ(f.Convert("I"), "I");
+  // 固有名詞の途中で「で」などに区切らない
+  CHECK_EQ(f.Convert("Claude"), "Claude");
+  CHECK_EQ(f.Convert("Claudeni"), "Claudeに");
+  CHECK_EQ(f.Convert("Windowsnosettei"), "Windowsの|設定");
+  // 辞書に無い語は英字の続き全部
+  CHECK_EQ(f.Convert("Toraime"), "Toraime");
 }
 
 TEST(ConvertEnglishDetectionOff) {
@@ -646,6 +684,9 @@ TEST(RealDictionary) {
   Engine engine;
   CHECK(engine.LoadSystemDictionary(g_dic_path));
   CHECK(engine.LoadEnglishWords(std::string(TORA_SOURCE_DIR) + "/data/english_words.txt"));
+  // 辞書と同じフォルダーにあれば大きな英単語リストも使う
+  const std::filesystem::path large = std::filesystem::path(g_dic_path).parent_path() / "english_large.txt";
+  const bool has_large = engine.LoadLargeEnglishWords(large);
   engine.config().learning = false;
   auto conv = [&](const std::string& keys) {
     Composer c(&engine.config());
@@ -673,6 +714,13 @@ TEST(RealDictionary) {
   CHECK_EQ(conv("ikitemo"), "生きても");
   CHECK_EQ(conv("githubnirepositorywotsukuru"), "githubにrepositoryを作る");
   CHECK_EQ(conv("tesutodesu"), "テストです");
+  if (has_large) {
+    CHECK_EQ(conv("Claudenikiku"), "Claudeに聞く");
+    CHECK_EQ(conv("Claudedeshirabeta"), "Claudeで調べた");
+    CHECK_EQ(conv("Pythonnohon"), "Pythonの本");
+  } else {
+    std::printf("  (english_large.txt not found next to the dictionary)\n");
+  }
 }
 
 }  // namespace

@@ -57,6 +57,9 @@ class Converter {
             const EnglishWords* english, const Config* config)
       : dict_(dict), user_(user), history_(history), english_(english), config_(config) {}
 
+  // 大文字で始めた語の区切りに使う大きな英単語リスト (固有名詞を含む)
+  void set_english_large(const EnglishWords* words) { english_large_ = words; }
+
   // input の [begin, end) を変換して最小コストの経路を返す。
   // left_rid は直前の文節の右文脈 ID (先頭なら 0 = BOS)。
   std::vector<Node> Convert(const Input& input, uint32_t begin, uint32_t end,
@@ -89,9 +92,6 @@ class Converter {
   static constexpr int kAsciiSpanBase = 3000;
   static constexpr int kAsciiSpanPerChar = 1500;
   static constexpr int kUpperSpanBase = 2000;
-  static constexpr int kUpperSpanPerUpper = 300;
-  static constexpr int kUpperSpanPerLower = 1200;  // ローマ字として読める小文字
-  static constexpr int kUpperSpanPerJunk = 300;    // ローマ字として読めない小文字
   static constexpr int kHistoryOnlyCost = 5000;
   static constexpr int kMaxAsciiSpan = 32;
 
@@ -101,6 +101,7 @@ class Converter {
   void AddAsciiNodes(const Input& input, const std::vector<Piece>& chain, std::vector<Node>* out) const;
   void AddFallbackNode(const std::vector<Piece>& chain, std::vector<Node>* out) const;
   int HistoryBonus(std::u16string_view reading, std::u16string_view surface) const;
+  bool IsKnownEnglish(const std::string& lower, const std::string& raw) const;
   int Connection(uint16_t rid, uint16_t lid) const;
   uint8_t PosFlags(uint16_t id) const;
 
@@ -108,6 +109,7 @@ class Converter {
   const UserDictionary* user_;
   const History* history_;
   const EnglishWords* english_;
+  const EnglishWords* english_large_ = nullptr;
   const Config* config_;
 };
 
