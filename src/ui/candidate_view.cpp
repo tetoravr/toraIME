@@ -6,7 +6,7 @@
 namespace toraui {
 
 Fonts::Fonts(const std::wstring& family, float scale)
-    : candidate(family, 16 * scale), small(family, 11.5f * scale), hint(family, 13.5f * scale) {}
+    : candidate(family, 16 * scale), caption(family, 11.5f * scale), hint(family, 13.5f * scale) {}
 
 namespace {
 constexpr float kPad = 6;
@@ -19,7 +19,7 @@ SizeI CandidateView::Layout(const CandidateModel& model, const Fonts& fonts) {
   float content_w = kMinWidth * s_;
   for (size_t i = 0; i < model.items.size(); ++i) {
     float w = fonts.candidate.Measure(model.items[i]).w + 52 * s_;
-    if (i < model.notes.size() && !model.notes[i].empty()) w += fonts.small.Measure(model.notes[i]).w + 22 * s_;
+    if (i < model.notes.size() && !model.notes[i].empty()) w += fonts.caption.Measure(model.notes[i]).w + 22 * s_;
     content_w = std::max(content_w, w + 12 * s_);
   }
   footer_h_ = model.page_count > 1 ? 24 * s_ : 0;
@@ -49,14 +49,14 @@ void CandidateView::Draw(Canvas& c, const CandidateModel& model, const Fonts& fo
     const float bs = 20 * s_;
     const RectF badge = {row.x + 8 * s_, row.y + (row.h - bs) / 2, bs, bs};
     c.FillRoundRect(badge, bs / 2, sel ? Color::Rgb(0xFFFFFF, 0.25f) : t.well);
-    c.Text(std::wstring(1, static_cast<wchar_t>(L'1' + i)), badge, fonts.small,
+    c.Text(std::wstring(1, static_cast<wchar_t>(L'1' + i)), badge, fonts.caption,
            sel ? t.on_accent : t.text_secondary, kAlignCenter);
     // 候補と説明
     const float tx = badge.right() + 10 * s_;
     float right = row.right() - 10 * s_;
     if (i < model.notes.size() && !model.notes[i].empty()) {
-      const float nw = fonts.small.Measure(model.notes[i]).w + 2 * s_;
-      c.Text(model.notes[i], {right - nw, row.y, nw, row.h}, fonts.small,
+      const float nw = fonts.caption.Measure(model.notes[i]).w + 2 * s_;
+      c.Text(model.notes[i], {right - nw, row.y, nw, row.h}, fonts.caption,
              sel ? Color::Rgb(0xFFFFFF, 0.8f) : t.text_faint, kAlignRight);
       right -= nw + 12 * s_;
     }
@@ -76,7 +76,7 @@ void CandidateView::Draw(Canvas& c, const CandidateModel& model, const Fonts& fo
       x += w + 4 * s_;
     }
     const std::wstring label = std::to_wstring(model.page + 1) + L" / " + std::to_wstring(model.page_count);
-    c.Text(label, {panel_.x, y, panel_.w - 16 * s_, footer_h_}, fonts.small, t.text_faint, kAlignRight);
+    c.Text(label, {panel_.x, y, panel_.w - 16 * s_, footer_h_}, fonts.caption, t.text_faint, kAlignRight);
   }
 }
 

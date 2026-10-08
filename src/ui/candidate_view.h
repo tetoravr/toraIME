@@ -21,7 +21,7 @@ struct Fonts {
   // family: Windows ではフォント名、FreeType ではフォントファイル
   Fonts(const std::wstring& family, float scale);
   Font candidate;  // 候補
-  Font small;      // 番号・説明
+  Font caption;    // 番号・説明 (small は Windows のマクロと衝突する)
   Font hint;       // 読み
 };
 
